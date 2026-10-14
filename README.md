@@ -23,10 +23,10 @@ DeepSeek Harness（DSH）会话上下文**自动压缩**：在 DSH 与公司 LLM
 - 发给 API 的 context ≈ **滚动摘要 + 近期原文**
 - 异步优先：尽量不挡当前这一轮请求
 
-实现落点（择一或组合，后续单独立项细化）：
+实现落点（v1 已选 **1**）：
 
-1. **透明代理**：DSH → 本地代理 → LiteLLM（最接近 rolling-context）
-2. **嵌入请求链路**：若 DSH/中间层可改，在发请求前或每轮回复后自动 compact（学 [contextkit](https://github.com/drandrewlaw/contextkit) 的引擎，但策略用「留新压旧」）
+1. **透明代理**：DSH → `proxy.py`（`127.0.0.1:4001`）→ LiteLLM（最接近 rolling-context）✅
+2. **嵌入请求链路**：若日后 DSH/中间层可改再议（学 [contextkit](https://github.com/drandrewlaw/contextkit) 的引擎零件，策略仍用「留新压旧」）
 
 ## 次要路径（应急，非首选）
 
@@ -71,20 +71,16 @@ DeepSeek Harness（DSH）会话上下文**自动压缩**：在 DSH 与公司 LLM
 
 ---
 
-## 产品形态（方向）
+## 产品形态（已落地）
 
 ```text
 dsh-compact/
-  README.md
-  # 主路径（待定实现形态）
-  proxy/ 或 middleware/   # 透明代理 或 嵌入式 compact 引擎
-  # 应急路径（可选）
-  compact.py              # 离线 CLI：session → brief.md
-  session_reader.py
-  chunker.py
-  summarizer.py
-  prompt.txt
-  requirements.txt
+  proxy.py                 # 主路径：本地透明代理
+  engine.py / prompt.txt   # 留新压旧 + 滚动 merge
+  tokens.py / strip_heavy.py / micro_compact.py
+  compact.py / session_reader.py   # 应急离线 CLI → brief.md
+  requirements.txt         # httpx
+  tests/                   # 44 passed
 ```
 
 ### 环境变量
@@ -246,10 +242,11 @@ Get-ChildItem -Path $env:USERPROFILE -Recurse -Include *.jsonl,*.json -ErrorActi
 | 留新压旧 + 滚动摘要 merge | **已实现并挂到代理** |
 | 应急 CLI（session → brief.md） | **已完成**（复用 engine 摘要 + 近期 verbatim） |
 | 真实 DSH session 样本 | **有**：`~\.dsh-compact\samples\session_probe.json` |
-| 端到端超窗自测 / Base URL 切代理 | 待 Base URL 可改时演练 |
+| Phase 3 DSH 烟测（Base URL → `:4001`） | **已做**：透传 / `[BG] compress done` / `injected=True`（手测曾用低 TRIGGER；生产用 180K） |
+| Phase 5：登录自启 + 回滚演练 + 生产阈值长会话 | **待做**（见 DEPLOYMENT §7 / §8） |
 
 ---
 
 ## 给执行 AI 的一句话
 
-Phase 0–4 已过：代理（content-hash、异步注入、流式透传）+ 应急 `compact.py` 均已落地；TRIGGER/TARGET=**180K/80K**。下一步 Phase 5：Base URL 可改时真网关超窗烟测与登录自启。
+Phase 0–4 已过：代理 + 应急 CLI 落地，`pytest` 44 绿；DSH 经代理烟测已验证压缩与注入。冻结 TRIGGER/TARGET=**180K/80K**。下一步 Phase 5：改回生产阈值、登录自启、熔断/off/回滚三演练；注意网关 `max_parallel_requests=2` 易与后台摘要抢槽（429）。
