@@ -222,23 +222,47 @@ python -m pytest tests -v
 
 **本阶段不依赖公司网关。** 下一步 → Phase 2（`prompt.txt` + `engine.py`）。
 
-### Phase 2：压缩引擎（接 mock 网关）
+### Phase 2：压缩引擎（接 mock 网关）— **已完成（含 e2e 加固）**
 
 | 交付 | 内容 | 验收 |
 |---|---|---|
-| `prompt.txt` | 滚动 merge 中文模板（Active Goal / Timeline / Current State / Key Details / Errors / Next Step） | 人工 review：字段齐全、含「并入既有摘要」指令 |
-| `engine.py` | `compress(messages, usage=None)`：切点 + 摘要 + merge；`should_compact(...)`；熔断计数 | mock 网关单测：超窗 → 只压旧、近期原文逐字不变；二次压缩走 merge；连败熔断 |
+| `prompt.txt` | 滚动 merge 中文模板（Active Goal / Timeline / … / Next Step） | ✅ |
+| `engine.py` | `should_compact` / `compress` / `auto_compact`；切点安全；滚动 merge；分片摘要；熔断 | ✅ |
+| `tests/test_engine.py` | fake summarizer + httpx MockTransport | ✅ |
+| `tests/mock_gateway.py` + `tests/test_engine_e2e.py` | 线程内 mock（可配 200/500/空 choices/usage）；混合会话；分片截断；HTTP 熔断；多次 merge | ✅ |
 
-mock 网关要点：固定返回 `usage` 的 fake OpenAI 服务；覆盖超窗、400、失败、base64 图、超长 tool 输出、多次 merge、熔断。
+e2e 覆盖：
 
-### Phase 3：代理（端到端）
+- 混合会话（base64 图 + 超长 tool）→ 压缩后变短、近期原文保留、无 400
+- 分片超长 → 丢最老 20% 轮次重试（`last_chunk_truncations`）
+- 摘要端连续 500 / 空 choices → 计入失败；3 连败熔断
+- 二次 compress → prompt 含「既有滚动摘要」，timeline/路径累积
+
+```powershell
+python -m pytest tests -v   # 当前 29 passed
+```
+
+下一步 → Phase 3（`proxy.py` 本地代理 + 流式透传 + content-hash）。真网关「超窗 0 次 400」留到 §7 step 2/3。
+
+### Phase 3：代理（端到端）— **已完成**
 
 | 交付 | 内容 | 验收 |
 |---|---|---|
-| `proxy.py` | 本地 HTTP 服务：`get_session_key`、异步压缩调度、注入、`/health`、`/stats`、日志 | 用脚本/curl 构造长会话直打 4001：自动压缩 ≥2 次；近期轮次原文不变；无 400；health 字段完整 |
+| `proxy.py` | `get_session_key`（header 优先，否则 content-hash）；前缀 hash 缓存注入；异步/`HARD_LIMIT` 同步压缩；chunked 流式透传；`/health` `/stats` | ✅ `tests/test_proxy.py` |
+| 注入模型 | DSH 全量重发 transcript → 缓存按 `source_len` 前缀匹配 → 发出 `compressed + messages[n:]` | ✅ 后台压完后下一轮含 `SUMMARY_MARKER` + 最新 user |
 
-`/health` 返回：`{service, version, pid, uptime_s, active_requests, enabled, compressions_total, tokens_saved_total}`。
-`/stats` 返回每会话：token 峰值、压缩次数、最近摘要字符数、冷却/熔断状态。
+```powershell
+# 前台启动（需 COMPANY_LLM_*）
+python proxy.py
+# 健康检查
+curl http://127.0.0.1:4001/health
+# DSH CompanyCode Base URL → http://127.0.0.1:4001/v1
+```
+
+`/health`：`service, version, pid, uptime_s, active_requests, enabled, compressions_total, tokens_saved_total, …`  
+`/stats`：每会话 peak/compressions/error + cache 摘要。
+
+下一步 → Phase 4 应急 CLI（可选）；上线演练见 §7 step 3+。
 
 ### Phase 4：应急 CLI（兜底）
 
@@ -311,9 +335,9 @@ pip install -r requirements.txt   # 仅 httpx
 | # | 步骤 | 验收 gate |
 |---|---|---|
 | 0 | Phase 0 五 Gate（§3.1 / §3.3） | **已完成 2026-10-14**：content-hash；TRIGGER=180K；TARGET=80K |
-| 1 | Phase 1 基础模块 | **已完成**：`pytest tests` 14 passed |
-| 2 | Phase 2 引擎 + mock 网关 | mock 全绿；超窗 0 次 400；熔断 3 连败生效 |
-| 3 | Phase 3 代理 + 脚本打长会话 | 自动压缩 ≥2 次；近期原文不变；无 400 |
+| 1 | Phase 1 基础模块 | **已完成** |
+| 2 | Phase 2 引擎 + mock 网关 e2e | **已完成** |
+| 3 | Phase 3 代理 + 单测 | **已完成**：`pytest tests` 含 `test_proxy`（注入/health/透传） |
 | 4 | DSH 接本地代理（§8.1），用已超窗历史的复制会话继续 | 同一会话可续发；transcript 未被改写 |
 | 5 | 登录自启 + 失败重跑（§8.2） | 重启机器 → 代理自启 → 旧会话可续聊 |
 | 6 | 三演练：①熔断 ②off ③回滚（§8.4） | 三项全过 |

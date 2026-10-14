@@ -88,12 +88,12 @@
 
 ## 5. 落地顺序建议
 
-**Phase 0 已完成 → 从 Phase 1 开始：**
+**Phase 0–2 已完成 → 下一步 Phase 3：**
 
-1. `tokens.py`（usage 优先 + 估算 + 分组）→ 单测
-2. `strip_heavy.py` + `micro_compact.py`（免费层，无 LLM；可用 `~\.dsh-compact\samples\session_probe.json`）
-3. `prompt.txt`（滚动 merge 模板，中文化）
-4. `engine.py`（`compress()`：切点 + 摘要 + merge，接 mock 网关测）
-5. `proxy.py`（content-hash 匹配 + 异步注入 + health/stats + 流式透传）
-6. 应急 `session_reader.py` / `compact.py`
-7. 端到端超窗自测 + 熔断演练（DEPLOYMENT §7）
+1. ~~`tokens.py`~~ ✅
+2. ~~`strip_heavy.py` + `micro_compact.py`~~ ✅
+3. ~~`prompt.txt`~~ ✅
+4. ~~`engine.py` + mock e2e（混合会话 / 熔断 / merge）~~ ✅
+5. ~~`proxy.py`~~ ✅
+6. 应急 `session_reader.py` / `compact.py` ← **可选下一步**
+7. 真网关超窗烟测 + 登录自启演练（DEPLOYMENT §7 step 3+）
