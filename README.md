@@ -105,10 +105,22 @@ $env:COMPANY_LLM_MODEL = "company-code"
 
 密钥**只从环境变量读**，禁止写进仓库。
 
+### 启动代理（主路径）
+
+```powershell
+$env:COMPANY_LLM_KEY = "sk-..."
+$env:COMPANY_LLM_BASE = "http://172.17.7.90:4000/v1"
+$env:COMPANY_LLM_MODEL = "company-code"
+python proxy.py
+# curl http://127.0.0.1:4001/health
+```
+
+DSH → Settings → Models → CompanyCode → Base URL = `http://127.0.0.1:4001/v1` → Apply，重启会话。
+
 ### 用户流程（目标）
 
-1. 正常使用 DSH（流量经自动压缩层，或内嵌引擎已启用）
-2. 上下文接近阈值 → **自动**只压旧、留近
+1. 正常使用 DSH（流量经本地代理）
+2. 上下文接近阈值 → **自动**只压旧、留近（后台压缩，下轮注入）
 3. 同一会话继续聊，无需开新会话、无需粘贴 brief
 
 ### 应急流程（仅当会话已打不开）
@@ -227,9 +239,10 @@ Get-ChildItem -Path $env:USERPROFILE -Recurse -Include *.jsonl,*.json -ErrorActi
 | --- | --- |
 | Phase 0 五 Gate（抓包 / 样本 / 摘要压测） | **已完成 2026-10-14**（见 `notes/phase0-checklist.md`） |
 | 冻结决策：content-hash；TRIGGER=180K；TARGET=80K；同步可行 | **已冻结** |
-| Phase 1：`tokens.py` / `strip_heavy.py` / `micro_compact.py` + 单测 | **已完成**（`pytest tests` 14 passed） |
-| 自动压缩层（代理 / 嵌入引擎） | 待实现（Phase 3） |
-| 留新压旧 + 滚动摘要 merge | 待实现（Phase 2） |
+| Phase 1：`tokens.py` / `strip_heavy.py` / `micro_compact.py` + 单测 | **已完成** |
+| Phase 2：`prompt.txt` / `engine.py` + mock e2e 加固 | **已完成** |
+| Phase 3：`proxy.py`（content-hash / 异步注入 / 流式透传 / health） | **已完成**（`pytest tests` 全绿） |
+| 留新压旧 + 滚动摘要 merge | **已实现并挂到代理** |
 | 应急 CLI（session → brief.md） | 待实现（次要） |
 | 真实 DSH session 样本 | **有**：`~\.dsh-compact\samples\session_probe.json` |
 | 端到端超窗自测 | 待实现 |
