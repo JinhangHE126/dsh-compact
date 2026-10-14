@@ -88,12 +88,12 @@
 
 ## 5. 落地顺序建议
 
-**Phase 0–4 已完成 → 下一步 Phase 5（真网关烟测）：**
+**Phase 0–4 已完成**（含 DSH 经本地代理的压缩/注入烟测）→ **下一步 Phase 5：**
 
 1. ~~`tokens.py`~~ ✅
 2. ~~`strip_heavy.py` + `micro_compact.py`~~ ✅
 3. ~~`prompt.txt`~~ ✅
 4. ~~`engine.py` + mock e2e（混合会话 / 熔断 / merge）~~ ✅
-5. ~~`proxy.py`~~ ✅
+5. ~~`proxy.py`~~ ✅（DSH Base URL → `:4001` 烟测通过）
 6. ~~应急 `session_reader.py` / `compact.py`~~ ✅
-7. 真网关超窗烟测 + 登录自启演练（DEPLOYMENT §7 step 3+）
+7. 登录自启 + 生产阈值日常用 + 熔断/off/回滚演练（DEPLOYMENT §7 step 4–7 / §8）；可选缓解摘要 429

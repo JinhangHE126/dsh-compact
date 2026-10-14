@@ -129,7 +129,7 @@ python scripts/gate_e_summarize_probe.py
 
 抓包还确认：请求含 `stream`/`stream_options`/`tools`/`store`/`max_completion_tokens` → 代理须流式透传、正确处理 tool 切点、未知字段原样转发。`user-agent: deepseek-harness/0.2.0-rc.2`。
 
-**Phase 0 通过 → 进入 Phase 1 实现。**
+**Phase 0 通过 → 已完成 Phase 1–4；当前进入 Phase 5（§7 / §8）。**
 
 ---
 
@@ -213,14 +213,14 @@ Phase 0 抓包确认：**无会话头、body 无会话 id**。v1 采用：
 | `tokens.py` | `estimate_tokens` / `estimate_messages(usage 优先)` / `group_messages_by_round` | ✅ |
 | `strip_heavy.py` | `strip_images` / `truncate_long_tool_outputs` / `strip_heavy` | ✅ |
 | `micro_compact.py` | `micro_compact(keep_recent=5)`，OpenAI `role:tool` | ✅ |
-| `tests/` | 14 tests（含本地 `session_probe.json` smoke） | ✅ `pytest tests` 全绿 |
+| `tests/` | tokens / strip / micro + `session_probe.json` smoke | ✅ |
 
 ```powershell
 pip install -r requirements.txt
-python -m pytest tests -v
+python -m pytest tests -v   # 全仓现 44 passed
 ```
 
-**本阶段不依赖公司网关。** 下一步 → Phase 2（`prompt.txt` + `engine.py`）。
+**本阶段不依赖公司网关。**
 
 ### Phase 2：压缩引擎（接 mock 网关）— **已完成（含 e2e 加固）**
 
@@ -239,10 +239,8 @@ e2e 覆盖：
 - 二次 compress → prompt 含「既有滚动摘要」，timeline/路径累积
 
 ```powershell
-python -m pytest tests -v   # 当前 29 passed
+python -m pytest tests -v
 ```
-
-下一步 → Phase 3（`proxy.py` 本地代理 + 流式透传 + content-hash）。真网关「超窗 0 次 400」留到 §7 step 2/3。
 
 ### Phase 3：代理（端到端）— **已完成**
 
@@ -250,9 +248,12 @@ python -m pytest tests -v   # 当前 29 passed
 |---|---|---|
 | `proxy.py` | `get_session_key`（header 优先，否则 content-hash）；前缀 hash 缓存注入；异步/`HARD_LIMIT` 同步压缩；chunked 流式透传；`/health` `/stats` | ✅ `tests/test_proxy.py` |
 | 注入模型 | DSH 全量重发 transcript → 缓存按 `source_len` 前缀匹配 → 发出 `compressed + messages[n:]` | ✅ 后台压完后下一轮含 `SUMMARY_MARKER` + 最新 user |
+| DSH 手测（2026-10-14） | Base URL → `:4001`；临时低 TRIGGER 验证压/注 | ✅ `Forwarding` / `compress done` / `injected=True`；遇 `429 max_parallel_requests=2`（摘要与主聊抢槽） |
 
 ```powershell
-# 前台启动（需 COMPANY_LLM_*）
+# 前台启动（需 COMPANY_LLM_*；生产阈值）
+$env:DASH_COMPACT_TRIGGER = "180000"
+$env:DASH_COMPACT_TARGET  = "80000"
 python proxy.py
 # 健康检查
 curl http://127.0.0.1:4001/health
@@ -262,7 +263,9 @@ curl http://127.0.0.1:4001/health
 `/health`：`service, version, pid, uptime_s, active_requests, enabled, compressions_total, tokens_saved_total, …`  
 `/stats`：每会话 peak/compressions/error + cache 摘要。
 
-### Phase 4：应急 CLI（兜底）✅
+手测压压缩时可临时降 `DASH_COMPACT_TRIGGER`（如 2000）；**测完必须改回 180000**，否则会过于频繁摘要并易触发 429。
+
+### Phase 4：应急 CLI（兜底）— **已完成**
 
 | 交付 | 内容 | 状态 |
 |---|---|---|
@@ -276,11 +279,9 @@ python compact.py "$env:USERPROFILE\.dsh-compact\samples\session_probe.json" -o 
 python compact.py path\to\session.jsonl -o brief.md --recent-rounds 5
 ```
 
-下一步 → Phase 5：Base URL 可改时做真网关超窗烟测 + 登录自启（§7）。
+### Phase 5：部署与演练 — **进行中 / 待做**
 
-### Phase 5：部署与演练
-
-见 §7（上线步骤）与 §8（运维）。
+见 §7（上线步骤 4–7）与 §8（运维）：登录自启、生产阈值长会话、熔断/off/回滚三演练；可选缓解摘要 429（排队 / 降并发）。
 
 ---
 
@@ -344,8 +345,8 @@ pip install -r requirements.txt   # 仅 httpx
 | 0 | Phase 0 五 Gate（§3.1 / §3.3） | **已完成 2026-10-14**：content-hash；TRIGGER=180K；TARGET=80K |
 | 1 | Phase 1 基础模块 | **已完成** |
 | 2 | Phase 2 引擎 + mock 网关 e2e | **已完成** |
-| 3 | Phase 3 代理 + 单测 | **已完成**：`pytest tests` 含 `test_proxy`（注入/health/透传） |
-| 4 | DSH 接本地代理（§8.1），用已超窗历史的复制会话继续 | 同一会话可续发；transcript 未被改写 |
+| 3 | Phase 3 代理 + 单测 + DSH 烟测 | **已完成**：`pytest` 44；DSH 经 `:4001` 透传/压缩/注入已验证 |
+| 4 | DSH 接本地代理（§8.1），生产 TRIGGER=180K 日常用 | 同一会话可续发；transcript 未被改写；（可选）长会话看真实省 token |
 | 5 | 登录自启 + 失败重跑（§8.2） | 重启机器 → 代理自启 → 旧会话可续聊 |
 | 6 | 三演练：①熔断 ②off ③回滚（§8.4） | 三项全过 |
 | 7 | 宣布完成；CLI 命令 + 本文件归档 Wiki | — |
@@ -405,7 +406,8 @@ taskkill /IM pythonw.exe /F 2>$null
 | DSH 报 ConnectionRefused | 代理未起 / 端口错 | 前台 `python proxy.py` 看 banner |
 | 流量不到本地 | DSH base 未切 | 改 base 重启 DSH；`netstat` 看 4001 |
 | 请求 400（仍超窗） | 同步压缩未触发或摘要失败 | 查 `[BG]`/`[ERROR]`；确认 key/base/超时 ≥600s |
-| 摘要空/拒绝 | 安全分类或限流 | 冷却 300s；连败熔断；查网关 |
+| 摘要空/拒绝 | 安全分类或限流 | 冷却 300s；连败熔断；查网关；Gate E 对照 |
+| 摘要 `429 max_parallel_requests` | 主聊 + 后台摘要并行超限（实测 limit=2） | 等主请求结束再压；手测勿把 TRIGGER 过低；后续可加摘要排队 / 降 `MAX_CONCURRENT` |
 | 多会话只有一个在压 | 全局并发占满 | 查 `[MSG] ... skipping`；调 `MAX_CONCURRENT` |
 
 ### 8.6 日志、容量与隐私
@@ -426,7 +428,7 @@ taskkill /IM pythonw.exe /F 2>$null
 | 同步压缩（>256K 安全线）耗时 > 客户端超时 | 中 | 最需压缩的轮次反而 400 | 该路径只低频触发；给 DSH 调大超时；否则明确走 CLI 兜底 |
 | 内容 hash 匹配错位 | 中 | 注入错误/漏注入 | 已选 content-hash；取「去最新 user 后前缀」稳定化；Phase 3 压测验证 |
 | 代理崩溃/重启 | 低 | 内存摘要丢失 | 计划任务重跑；下轮超阈值自动重压一次 |
-| 网关限流/故障 | 低 | 压缩不可用 | 冷却+熔断+micro 免费层兜底；极端走 CLI |
+| 网关限流/故障（含 `max_parallel_requests=2`） | **高**（已实测） | 后台摘要 429，主聊多半仍 200 | 冷却+熔断；生产 TRIGGER=180K 降频；摘要排队或等主请求结束；极端走 CLI |
 | DSH 更新改请求 shape | 中 | 解析错位 | 抓包 diff；未知字段透传不破坏 |
 | 密钥可见性（代理见 Authorization） | 低 | 凭证暴露面 | 仅 `127.0.0.1`、env、日志脱敏、无磁盘存储 |
 | 单会话想全量历史（无 per-session off） | 中 | 影响体验 | v1 先机器级 off；v1.1 补 per-session off（学 rolling-context `/off`） |
@@ -472,4 +474,4 @@ taskkill /IM pythonw.exe /F 2>$null
 
 ## 附录 C：给执行 AI 的一句话
 
-**Phase 0–4 已完成。** 代理主路径与应急 CLI 均已落地；`pytest tests` 全绿。下一步 Phase 5：Base URL 可改时做真网关超窗烟测与登录自启（§7）。冻结：TRIGGER=180K、TARGET=80K、身份=content-hash。
+**Phase 0–4 已完成**（`pytest` 44；DSH 烟测已验证透传/压缩/注入）。下一步 Phase 5：§7 step 4–7 + §8（生产阈值日常用、登录自启、三演练；可选 429 排队）。冻结：TRIGGER=180K、TARGET=80K、身份=content-hash。
