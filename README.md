@@ -241,14 +241,15 @@ Get-ChildItem -Path $env:USERPROFILE -Recurse -Include *.jsonl,*.json -ErrorActi
 | 冻结决策：content-hash；TRIGGER=180K；TARGET=80K；同步可行 | **已冻结** |
 | Phase 1：`tokens.py` / `strip_heavy.py` / `micro_compact.py` + 单测 | **已完成** |
 | Phase 2：`prompt.txt` / `engine.py` + mock e2e 加固 | **已完成** |
-| Phase 3：`proxy.py`（content-hash / 异步注入 / 流式透传 / health） | **已完成**（`pytest tests` 全绿） |
+| Phase 3：`proxy.py`（content-hash / 异步注入 / 流式透传 / health） | **已完成** |
+| Phase 4：`session_reader.py` / `compact.py` 应急 CLI | **已完成**（`pytest tests` 44 passed） |
 | 留新压旧 + 滚动摘要 merge | **已实现并挂到代理** |
-| 应急 CLI（session → brief.md） | 待实现（次要） |
+| 应急 CLI（session → brief.md） | **已完成**（复用 engine 摘要 + 近期 verbatim） |
 | 真实 DSH session 样本 | **有**：`~\.dsh-compact\samples\session_probe.json` |
-| 端到端超窗自测 | 待实现 |
+| 端到端超窗自测 / Base URL 切代理 | 待 Base URL 可改时演练 |
 
 ---
 
 ## 给执行 AI 的一句话
 
-Phase 0 已过：身份用 **content-hash**，TRIGGER/TARGET=**180K/80K**，无 cache、同步压缩可行。按 DEPLOYMENT Phase 1→5 实现**自动、留新压旧**（对齐 rolling-context；OpenAI `/v1/chat/completions` + 流式透传；摘要走公司网关）。contextkit 只借鉴阈值、micro-compact、熔断。离线 `brief.md` CLI 仅作应急。
+Phase 0–4 已过：代理（content-hash、异步注入、流式透传）+ 应急 `compact.py` 均已落地；TRIGGER/TARGET=**180K/80K**。下一步 Phase 5：Base URL 可改时真网关超窗烟测与登录自启。

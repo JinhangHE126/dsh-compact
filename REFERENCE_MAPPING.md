@@ -88,12 +88,12 @@
 
 ## 5. 落地顺序建议
 
-**Phase 0–2 已完成 → 下一步 Phase 3：**
+**Phase 0–4 已完成 → 下一步 Phase 5（真网关烟测）：**
 
 1. ~~`tokens.py`~~ ✅
 2. ~~`strip_heavy.py` + `micro_compact.py`~~ ✅
 3. ~~`prompt.txt`~~ ✅
 4. ~~`engine.py` + mock e2e（混合会话 / 熔断 / merge）~~ ✅
 5. ~~`proxy.py`~~ ✅
-6. 应急 `session_reader.py` / `compact.py` ← **可选下一步**
+6. ~~应急 `session_reader.py` / `compact.py`~~ ✅
 7. 真网关超窗烟测 + 登录自启演练（DEPLOYMENT §7 step 3+）

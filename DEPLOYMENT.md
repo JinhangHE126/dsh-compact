@@ -262,14 +262,21 @@ curl http://127.0.0.1:4001/health
 `/health`：`service, version, pid, uptime_s, active_requests, enabled, compressions_total, tokens_saved_total, …`  
 `/stats`：每会话 peak/compressions/error + cache 摘要。
 
-下一步 → Phase 4 应急 CLI（可选）；上线演练见 §7 step 3+。
+### Phase 4：应急 CLI（兜底）✅
 
-### Phase 4：应急 CLI（兜底）
-
-| 交付 | 内容 | 验收 |
+| 交付 | 内容 | 状态 |
 |---|---|---|
-| `session_reader.py` | 解析 DSH json/jsonl | 能读脱敏样本 |
-| `compact.py` | `session → brief.md`（中文摘要 + 最近 3–5 轮 verbatim 追加） | 产出可粘贴 brief；无 400 |
+| `session_reader.py` | JSON / JSONL / `messages` 包装；可读 `session_probe.json` | ✅ `tests/test_session_reader.py` |
+| `compact.py` | strip → micro → 留新压旧摘要 → `brief.md` + 近期 verbatim | ✅ `tests/test_compact_cli.py` |
+
+```powershell
+# 需 COMPANY_LLM_*（假摘要测见 pytest）
+python compact.py "$env:USERPROFILE\.dsh-compact\samples\session_probe.json" -o brief.md
+# 或指定近期轮数
+python compact.py path\to\session.jsonl -o brief.md --recent-rounds 5
+```
+
+下一步 → Phase 5：Base URL 可改时做真网关超窗烟测 + 登录自启（§7）。
 
 ### Phase 5：部署与演练
 
@@ -465,4 +472,4 @@ taskkill /IM pythonw.exe /F 2>$null
 
 ## 附录 C：给执行 AI 的一句话
 
-**Phase 0 已完成。** 按 Phase 1→5 实现：先做无 LLM 的三个基础模块（`tokens.py` / `strip_heavy.py` / `micro_compact.py`，可用 `~\.dsh-compact\samples\session_probe.json`）并跑绿单测，再做 `engine.py`（留新压旧 + 滚动 merge，OpenAI 格式，mock 网关），再做 `proxy.py`（content-hash、异步注入、流式透传、health/stats），最后应急 CLI。冻结：TRIGGER=180K、TARGET=80K、身份=content-hash。
+**Phase 0–4 已完成。** 代理主路径与应急 CLI 均已落地；`pytest tests` 全绿。下一步 Phase 5：Base URL 可改时做真网关超窗烟测与登录自启（§7）。冻结：TRIGGER=180K、TARGET=80K、身份=content-hash。
