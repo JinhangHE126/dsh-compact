@@ -54,8 +54,9 @@ def test_get_session_key_content_hash_drops_last_user():
 
 
 @pytest.fixture
-def proxy_pair():
+def proxy_pair(monkeypatch):
     """Start mock upstream + proxy; yield (proxy_base, mock_gateway, state)."""
+    monkeypatch.setenv("DASH_COMPACT_IDLE_WAIT_S", "30")
     upstream = start_mock_gateway()
     upstream.state.configure(
         content="upstream-ok",
@@ -173,8 +174,8 @@ def test_inject_after_background_compress(proxy_pair):
     )
     assert r1.status_code == 200
 
-    # Wait for background compress
-    deadline = time.time() + 10
+    # Wait for background compress (may idle-wait until handler finishes)
+    deadline = time.time() + 30
     while time.time() < deadline and state.compressions_total < 1:
         time.sleep(0.1)
     assert state.compressions_total >= 1, "background compress did not finish"

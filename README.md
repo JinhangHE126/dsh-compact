@@ -80,7 +80,7 @@ dsh-compact/
   tokens.py / strip_heavy.py / micro_compact.py
   compact.py / session_reader.py   # 应急离线 CLI → brief.md
   requirements.txt         # httpx
-  tests/                   # 44 passed
+  tests/                   # 45 passed
 ```
 
 ### 环境变量
@@ -242,11 +242,21 @@ Get-ChildItem -Path $env:USERPROFILE -Recurse -Include *.jsonl,*.json -ErrorActi
 | 留新压旧 + 滚动摘要 merge | **已实现并挂到代理** |
 | 应急 CLI（session → brief.md） | **已完成**（复用 engine 摘要 + 近期 verbatim） |
 | 真实 DSH session 样本 | **有**：`~\.dsh-compact\samples\session_probe.json` |
-| Phase 3 DSH 烟测（Base URL → `:4001`） | **已做**：透传 / `[BG] compress done` / `injected=True`（手测曾用低 TRIGGER；生产用 180K） |
-| Phase 5：登录自启 + 回滚演练 + 生产阈值长会话 | **待做**（见 DEPLOYMENT §7 / §8） |
+| Phase 3 DSH 烟测（Base URL → `:4001`） | **已做**：透传 / compress / inject |
+| Phase 5：自启脚本 + 文件日志 + 429 重试/空闲再压 | **代码已就绪**（proxy **v0.4.0**）；人工勾选见 `notes/phase5-checklist.md` |
+
+### Phase 5 一键（Windows）
+
+```powershell
+[Environment]::SetEnvironmentVariable("COMPANY_LLM_KEY", "sk-...", "User")  # 一次即可
+powershell -ExecutionPolicy Bypass -File .\scripts\install_autostart.ps1
+Start-Process "$env:USERPROFILE\.dsh-compact\run_proxy_task.cmd"
+curl.exe http://127.0.0.1:4001/health
+# DSH Base URL = http://127.0.0.1:4001/v1
+```
 
 ---
 
 ## 给执行 AI 的一句话
 
-Phase 0–4 已过：代理 + 应急 CLI 落地，`pytest` 44 绿；DSH 经代理烟测已验证压缩与注入。冻结 TRIGGER/TARGET=**180K/80K**。下一步 Phase 5：改回生产阈值、登录自启、熔断/off/回滚三演练；注意网关 `max_parallel_requests=2` 易与后台摘要抢槽（429）。
+Phase 0–5 代码与脚本已齐（proxy v0.4.0）：生产阈值 180K/80K、登录自启脚本、摘要 429 重试与空闲后再压。剩余是人机 checklist：DSH Base URL、自启验证、三演练（`notes/phase5-checklist.md`）。
