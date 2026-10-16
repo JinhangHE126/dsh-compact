@@ -92,6 +92,21 @@ def _is_plain_user(msg: Mapping[str, Any]) -> bool:
     return msg.get("role") == "user" and not _is_tool_role(msg)
 
 
+def _tail_accum_index(messages: Sequence[Mapping[str, Any]], keep_ratio: float) -> int:
+    """Earliest index i such that messages[i:] covers keep_ratio of the total
+    tokens (0 when the list is too short to cut)."""
+    if len(messages) <= 4:
+        return 0
+    total = sum(estimate_message_tokens(m) for m in messages)
+    target = int(total * keep_ratio)
+    accumulated = 0
+    for i in range(len(messages) - 1, -1, -1):
+        accumulated += estimate_message_tokens(messages[i])
+        if accumulated >= target:
+            return i
+    return 0
+
+
 def find_keep_index(messages: Sequence[Mapping[str, Any]], keep_ratio: float) -> int:
     """Find cut index so messages[cut:] ≈ keep_ratio of total tokens.
 
@@ -103,22 +118,16 @@ def find_keep_index(messages: Sequence[Mapping[str, Any]], keep_ratio: float) ->
     """
     if len(messages) <= 4:
         return 0
-    total = sum(estimate_message_tokens(m) for m in messages)
-    target = int(total * keep_ratio)
-    accumulated = 0
-    for i in range(len(messages) - 1, -1, -1):
-        accumulated += estimate_message_tokens(messages[i])
-        if accumulated >= target:
-            # Prefer the nearest plain user at or after i — never clamp it
-            # away from a real user; that clamp caused the no-op regression.
-            for j in range(i, len(messages)):
-                if _is_plain_user(messages[j]):
-                    return j
-            # No plain user in the tail: fall back to the last one before i.
-            for j in range(i - 1, -1, -1):
-                if _is_plain_user(messages[j]):
-                    return j
-            return 0
+    i = _tail_accum_index(messages, keep_ratio)
+    # Prefer the nearest plain user at or after i — never clamp it
+    # away from a real user; that clamp caused the no-op regression.
+    for j in range(i, len(messages)):
+        if _is_plain_user(messages[j]):
+            return j
+    # No plain user in the tail: fall back to the last one before i.
+    for j in range(i - 1, -1, -1):
+        if _is_plain_user(messages[j]):
+            return j
     return 0
 
 
@@ -476,12 +485,43 @@ class CompactEngine:
                         floor += 1
                     break
 
+        # Cut at a valid boundary. Preserve the RAW target before safe_cut
+        # collapses it — passing the collapsed value back into the relaxed retry
+        # is the no-op bug: strict safe_cut walks back to floor, then the
+        # relaxed retry only ever sees floor.
+        target_keep = keep_from
         keep_from = safe_cut(msgs, keep_from, floor)
         if keep_from <= floor:
             # Strict cut failed (e.g. the only recent user is preceded by an
-            # unmatched tool_use). Retry relaxed so we still compress instead
-            # of no-op'ing — the unmatched tool_use is dropped into the summary.
-            keep_from = safe_cut(msgs, keep_from, floor, allow_tool_prev=True)
+            # unmatched tool_use). Retry relaxed on the RAW target so we still
+            # compress instead of no-op'ing — the unmatched tool_use is dropped
+            # into the summary.
+            keep_from = safe_cut(msgs, target_keep, floor, allow_tool_prev=True)
+        if keep_from <= floor:
+            # Guaranteed fallback: keep the most recent plain-user turn verbatim
+            # and summarize everything before it. Dense agent runs have no clean
+            # user boundary in the tail (only assistant/tool pairs), so cut at
+            # the latest plain user after the floor.
+            for j in range(len(msgs) - 1, floor - 1, -1):
+                if _is_plain_user(msgs[j]):
+                    keep_from = j
+                    break
+        if keep_from <= floor:
+            # Dense agent runs with no plain user after the floor (only
+            # assistant/tool pairs). Cut at an assistant boundary — earliest at
+            # or after the tail target, else the latest before it. An assistant
+            # boundary is API-safe: its tool results (if any) stay in the kept
+            # tail, and an open mid-loop call is kept verbatim.
+            raw_start = _tail_accum_index(msgs, keep_ratio)
+            for j in range(raw_start, len(msgs)):
+                if msgs[j].get("role") == "assistant":
+                    keep_from = j
+                    break
+            else:
+                for j in range(raw_start - 1, floor - 1, -1):
+                    if msgs[j].get("role") == "assistant":
+                        keep_from = j
+                        break
         if keep_from <= floor:
             log.info("Not enough old messages to compress")
             return None
