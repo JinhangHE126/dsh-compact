@@ -21,6 +21,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlparse
 
@@ -38,12 +40,46 @@ from tokens import estimate_messages
 
 log = logging.getLogger("dsh-compact.proxy")
 
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 SERVICE = "dsh-compact"
 
 DEFAULT_PORT = 4001
-DEFAULT_MAX_CONCURRENT = 4
+DEFAULT_MAX_CONCURRENT = 1  # company gateway often allows only ~2 parallel requests
 HARD_LIMIT_TOKENS = 240_000  # sync-compress above this before forward
+DEFAULT_IDLE_WAIT_S = 180.0
+
+
+def compact_home() -> Path:
+    return Path(os.environ.get("DASH_COMPACT_HOME") or (Path.home() / ".dsh-compact"))
+
+
+def configure_logging() -> Path:
+    """Console + rotating file under ~/.dsh-compact/logs/proxy.log."""
+    level_name = os.environ.get("DASH_COMPACT_LOG_LEVEL", "INFO")
+    level = getattr(logging, level_name.upper(), logging.INFO)
+    fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+    root = logging.getLogger()
+    root.handlers.clear()
+    root.setLevel(level)
+
+    sh = logging.StreamHandler()
+    sh.setFormatter(fmt)
+    root.addHandler(sh)
+
+    log_dir = compact_home() / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    max_mb = int(os.environ.get("DASH_COMPACT_LOG_MAX_MB", "10"))
+    backups = int(os.environ.get("DASH_COMPACT_LOG_BACKUPS", "3"))
+    fh = RotatingFileHandler(
+        log_dir / "proxy.log",
+        maxBytes=max_mb * 1024 * 1024,
+        backupCount=backups,
+        encoding="utf-8",
+    )
+    fh.setFormatter(fmt)
+    root.addHandler(fh)
+    return log_dir / "proxy.log"
 
 
 # ---------------------------------------------------------------------------
@@ -195,6 +231,17 @@ class ProxyState:
             if key in self._stats:
                 self._stats[key].in_flight = False
 
+    def wait_until_idle(self, timeout_s: float) -> bool:
+        """Block until no in-flight HTTP handlers (or timeout). Returns True if idle."""
+        deadline = time.time() + max(0.0, timeout_s)
+        while time.time() < deadline:
+            if self.active_requests <= 0:
+                time.sleep(0.35)  # settle: avoid racing a just-started follow-up
+                if self.active_requests <= 0:
+                    return True
+            time.sleep(0.25)
+        return self.active_requests <= 0
+
     def schedule_compress(self, key: str, messages: list[Any], usage: Optional[dict]) -> None:
         if self.disabled:
             return
@@ -205,9 +252,24 @@ class ProxyState:
             return
 
         source = json.loads(json.dumps(messages))  # deep copy via json
+        idle_wait = float(
+            os.environ.get("DASH_COMPACT_IDLE_WAIT_S", str(DEFAULT_IDLE_WAIT_S))
+        )
 
         def job() -> None:
             try:
+                if idle_wait > 0:
+                    log.info(
+                        "[BG] waiting for idle (active=%s timeout=%.0fs) key=%s",
+                        self.active_requests,
+                        idle_wait,
+                        key[:16],
+                    )
+                    if not self.wait_until_idle(idle_wait):
+                        log.warning(
+                            "[BG] idle wait timed out active=%s; compressing anyway",
+                            self.active_requests,
+                        )
                 log.info("[BG] compress start key=%s n=%s", key[:16], len(source))
                 result = self.engine.compress(source, usage)
                 if result is None:
@@ -537,11 +599,9 @@ def serve(
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    logging.basicConfig(
-        level=os.environ.get("DASH_COMPACT_LOG_LEVEL", "INFO"),
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    log_path = configure_logging()
     httpd = serve()
+    print(f"  log={log_path}", flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

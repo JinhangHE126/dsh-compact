@@ -29,7 +29,7 @@ DEFAULT_TARGET = 80_000
 DEFAULT_MAX_FAILURES = 3
 DEFAULT_COOLDOWN_S = 300
 DEFAULT_CHUNK_CHARS = 60_000
-DEFAULT_SUMMARY_MAX_TOKENS = 4_000
+DEFAULT_SUMMARY_MAX_TOKENS = 6_000  # reasoning_effort=minimal 下给推理链+摘要正文留余量
 
 PROMPT_PATH = Path(__file__).resolve().parent / "prompt.txt"
 
@@ -93,30 +93,48 @@ def _is_plain_user(msg: Mapping[str, Any]) -> bool:
 
 
 def find_keep_index(messages: Sequence[Mapping[str, Any]], keep_ratio: float) -> int:
-    """Find cut index so messages[cut:] ≈ keep_ratio of total chars/tokens."""
+    """Find cut index so messages[cut:] ≈ keep_ratio of total tokens.
+
+    Returns the index of a plain user message: the nearest one at or after the
+    tail target (so the recent verbatim tail starts there), else the last
+    plain user before it. Old code clamped the result to ``len - 4`` and
+    ``safe_cut`` then walked backward, away from the only recent user, into a
+    no-op on dense agent sessions (Phase 5: every compress was a noop).
+    """
     if len(messages) <= 4:
         return 0
-    max_idx = len(messages) - 4
     total = sum(estimate_message_tokens(m) for m in messages)
     target = int(total * keep_ratio)
     accumulated = 0
     for i in range(len(messages) - 1, -1, -1):
         accumulated += estimate_message_tokens(messages[i])
         if accumulated >= target:
-            # Prefer next plain user at or after i
+            # Prefer the nearest plain user at or after i — never clamp it
+            # away from a real user; that clamp caused the no-op regression.
             for j in range(i, len(messages)):
                 if _is_plain_user(messages[j]):
-                    return min(j, max_idx)
-            return min(i + 1, max_idx)
+                    return j
+            # No plain user in the tail: fall back to the last one before i.
+            for j in range(i - 1, -1, -1):
+                if _is_plain_user(messages[j]):
+                    return j
+            return 0
     return 0
 
 
-def safe_cut(messages: Sequence[Mapping[str, Any]], cut: int, floor: int) -> int:
+def safe_cut(
+    messages: Sequence[Mapping[str, Any]],
+    cut: int,
+    floor: int,
+    allow_tool_prev: bool = False,
+) -> int:
     """
     Walk cut back so messages[cut:] is a valid conversation start.
 
     - messages[cut] must be a plain user message
-    - messages[cut-1] must not have tool_calls (would orphan tool results)
+    - messages[cut-1] must not have tool_calls (would orphan tool results),
+      unless allow_tool_prev: then the unmatched tool_use lives in the old part
+      and gets dropped into the summary, so the cut is still API-safe
     - messages[cut] must not be role=tool
     """
     while cut > floor:
@@ -125,13 +143,9 @@ def safe_cut(messages: Sequence[Mapping[str, Any]], cut: int, floor: int) -> int
             cut -= 1
             continue
         prev = messages[cut - 1]
-        if _has_tool_calls(prev):
+        if _has_tool_calls(prev) and not allow_tool_prev:
             cut -= 1
             continue
-        if _is_tool_role(prev) and cut - 1 > floor:
-            # Prefer not to start right after a tool without its assistant
-            # but starting at user after tool is ok if prev isn't tool_calls.
-            pass
         return cut
     return cut
 
@@ -176,6 +190,31 @@ def build_summarize_prompt(
     )
 
 
+_REASONING_TAIL_MARKERS = ("最终答案", "答案:", "最终", "总结", "摘要")
+
+
+def reasoning_tail_summary(text: str, keep_chars: int = 2_500) -> str:
+    """Degraded fallback: use the tail of the reasoning chain as the summary.
+
+    When the model spends its whole max_tokens on reasoning_content (so
+    `content` is empty), the final answer is almost always at the end of the
+    thinking chain. Prefer the last marker occurrence within a 2x window;
+    otherwise just take the last keep_chars characters.
+    """
+    text = str(text).strip()
+    if not text:
+        return ""
+    window = text[-(keep_chars * 2):]
+    start = len(text) - len(window)
+    for marker in _REASONING_TAIL_MARKERS:
+        pos = window.rfind(marker)
+        if pos >= 0:
+            segment = text[start + pos:].strip()
+            if segment:
+                return segment[-keep_chars:].strip()
+    return text[-keep_chars:].strip()
+
+
 def make_http_summarizer(
     *,
     base_url: Optional[str] = None,
@@ -184,39 +223,97 @@ def make_http_summarizer(
     timeout: float = 600.0,
     max_tokens: int = DEFAULT_SUMMARY_MAX_TOKENS,
     client: Optional[httpx.Client] = None,
+    max_retries: Optional[int] = None,
 ) -> SummarizeFn:
-    """Return a summarize(prompt)->text function hitting OpenAI-compatible API."""
+    """Return a summarize(prompt)->text function hitting OpenAI-compatible API.
+
+    Retries on HTTP 429 / 503 with exponential backoff (helps when chat and
+    summarizer share a low max_parallel_requests quota).
+    """
     base = (base_url or os.environ.get("COMPANY_LLM_BASE") or "").rstrip("/")
     key = api_key or os.environ.get("COMPANY_LLM_KEY") or ""
     mdl = model or os.environ.get("COMPANY_LLM_MODEL") or "company-code"
     owns_client = client is None
     http = client or httpx.Client(timeout=timeout)
+    retries = (
+        max_retries
+        if max_retries is not None
+        else int(os.environ.get("DASH_COMPACT_SUMMARIZE_RETRIES", "4"))
+    )
 
     def summarize(prompt: str) -> str:
         if not base or not key:
             raise RuntimeError("COMPANY_LLM_BASE / COMPANY_LLM_KEY required for summarizer")
         url = f"{base}/chat/completions"
-        resp = http.post(
-            url,
-            headers={"Authorization": f"Bearer {key}"},
-            json={
-                "model": mdl,
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": max_tokens,
-            },
-        )
-        if resp.status_code != 200:
-            raise RuntimeError(
-                f"Summarizer HTTP {resp.status_code}: {resp.text[:500]}"
-            )
-        data = resp.json()
-        try:
-            text = data["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError) as e:
-            raise RuntimeError(f"Bad summarizer response: {str(data)[:300]}") from e
-        if not text or not str(text).strip():
+        headers = {"Authorization": f"Bearer {key}"}
+
+        # company-code is a reasoning model: with max_tokens=4000 the
+        # reasoning_content eats the whole budget, content ends up empty
+        # (finish_reason=length). Send reasoning_effort=minimal to cap the
+        # thinking chain; if the gateway rejects the parameter (400), fall
+        # back to a plain payload.
+        message_body = {
+            "model": mdl,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": max_tokens,
+        }
+        payloads = [
+            {**message_body, "reasoning_effort": "minimal"},
+            message_body,
+        ]
+
+        def _call_once(payload: Mapping[str, Any]) -> httpx.Response:
+            last_err: Optional[Exception] = None
+            for attempt in range(max(1, retries)):
+                resp = http.post(url, headers=headers, json=payload)
+                if resp.status_code in (429, 503):
+                    last_err = RuntimeError(
+                        f"Summarizer HTTP {resp.status_code}: {resp.text[:500]}"
+                    )
+                    wait = min(60.0, 2.0 ** attempt)
+                    log.warning(
+                        "summarizer %s; retry %s/%s in %.1fs",
+                        resp.status_code,
+                        attempt + 1,
+                        retries,
+                        wait,
+                    )
+                    time.sleep(wait)
+                    continue
+                return resp
+            assert last_err is not None
+            raise last_err
+
+        for is_fallback, payload in enumerate(payloads):
+            resp = _call_once(payload)
+            if resp.status_code == 400 and not is_fallback:
+                log.warning(
+                    "server rejected summarizer params (400); retrying without "
+                    "reasoning_effort"
+                )
+                continue
+            if resp.status_code != 200:
+                raise RuntimeError(
+                    f"Summarizer HTTP {resp.status_code}: {resp.text[:500]}"
+                )
+            data = resp.json()
+            message = (data.get("choices") or [{}])[0].get("message") or {}
+            content = message.get("content")
+            if isinstance(content, str) and content.strip():
+                return content.strip()
+            # content exhausted its budget to the reasoning chain: the final
+            # answer is at the tail of the thinking chain — use it as a
+            # degraded summary instead of failing.
+            reasoning = message.get("reasoning_content") or message.get("reasoning")
+            if isinstance(reasoning, str) and reasoning.strip():
+                tail = reasoning_tail_summary(reasoning)
+                if tail:
+                    log.info(
+                        "summarize: content empty, using reasoning tail (%s chars)",
+                        len(tail),
+                    )
+                    return tail
             raise RuntimeError("Summarizer returned empty content")
-        return str(text).strip()
 
     summarize._client = http  # type: ignore[attr-defined]
     summarize._owns_client = owns_client  # type: ignore[attr-defined]
@@ -380,6 +477,11 @@ class CompactEngine:
                     break
 
         keep_from = safe_cut(msgs, keep_from, floor)
+        if keep_from <= floor:
+            # Strict cut failed (e.g. the only recent user is preceded by an
+            # unmatched tool_use). Retry relaxed so we still compress instead
+            # of no-op'ing — the unmatched tool_use is dropped into the summary.
+            keep_from = safe_cut(msgs, keep_from, floor, allow_tool_prev=True)
         if keep_from <= floor:
             log.info("Not enough old messages to compress")
             return None

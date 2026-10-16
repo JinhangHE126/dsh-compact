@@ -96,4 +96,4 @@
 4. ~~`engine.py` + mock e2e（混合会话 / 熔断 / merge）~~ ✅
 5. ~~`proxy.py`~~ ✅（DSH Base URL → `:4001` 烟测通过）
 6. ~~应急 `session_reader.py` / `compact.py`~~ ✅
-7. 登录自启 + 生产阈值日常用 + 熔断/off/回滚演练（DEPLOYMENT §7 step 4–7 / §8）；可选缓解摘要 429
+7. ~~Phase 5 脚本：自启 / 文件日志 / 429 重试+空闲再压~~ ✅ → 人工勾选 `notes/phase5-checklist.md`
