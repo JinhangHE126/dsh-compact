@@ -107,7 +107,7 @@
 | D | 身份方案：**content-hash** |
 | E | TRIGGER=**180000** TARGET=**80000** 同步：**可行**；无 cache |
 
-**Phase 0 完成 → 曾进入 Phase 1。**（截至文档更新：Phase 1–4 已落地，见 README / DEPLOYMENT；下一步 Phase 5。）
+**Phase 0 完成 → 曾进入 Phase 1。**（截至文档更新：Phase 0–5 代码已齐，见 `HOW_TO_DEPLOY.md` / README / DEPLOYMENT。）
 
 ### 抓包附带发现（实现时注意）
 

@@ -4,6 +4,9 @@ DeepSeek Harness（DSH）会话上下文**自动压缩**：在 DSH 与公司 LLM
 
 **偏好：程序自动压缩，而不是**「跑工具出 `brief.md` → 开新会话粘贴续聊」。
 
+> **给同事部署：** 按步骤照做 → [`HOW_TO_DEPLOY.md`](HOW_TO_DEPLOY.md)  
+> 架构与设计细节 → [`DEPLOYMENT.md`](DEPLOYMENT.md)
+
 ---
 
 ## 要解决的问题
@@ -79,8 +82,10 @@ dsh-compact/
   engine.py / prompt.txt   # 留新压旧 + 滚动 merge
   tokens.py / strip_heavy.py / micro_compact.py
   compact.py / session_reader.py   # 应急离线 CLI → brief.md
+  HOW_TO_DEPLOY.md         # 给同事的安装手册
+  DEPLOYMENT.md            # 架构 / 阶段 / 运维细则
   requirements.txt         # httpx
-  tests/                   # 45 passed
+  tests/                   # 56 passed
 ```
 
 ### 环境变量
@@ -89,17 +94,27 @@ dsh-compact/
 export COMPANY_LLM_KEY=sk-xxxx
 export COMPANY_LLM_BASE=http://172.17.7.90:4000/v1
 export COMPANY_LLM_MODEL=company-code
+
+# 可选：摘要专用凭证（另一把 key，避免抢聊天的 max_parallel_requests）
+# export DASH_COMPACT_SUMMARIZE_KEY=sk-yyyy
+# export DASH_COMPACT_SUMMARIZE_BASE=http://172.17.7.90:4000/v1
+# export DASH_COMPACT_SUMMARIZE_MODEL=company-code
 ```
 
-Windows PowerShell：
+Windows PowerShell（**推荐 User 级**，登录自启才能读到）：
 
 ```powershell
-$env:COMPANY_LLM_KEY = "sk-xxxx"
-$env:COMPANY_LLM_BASE = "http://172.17.7.90:4000/v1"
-$env:COMPANY_LLM_MODEL = "company-code"
+[Environment]::SetEnvironmentVariable("COMPANY_LLM_KEY", "sk-xxxx", "User")
+[Environment]::SetEnvironmentVariable("COMPANY_LLM_BASE", "http://172.17.7.90:4000/v1", "User")
+[Environment]::SetEnvironmentVariable("COMPANY_LLM_MODEL", "company-code", "User")
+
+# 可选：摘要单独 key
+[Environment]::SetEnvironmentVariable("DASH_COMPACT_SUMMARIZE_KEY", "sk-yyyy", "User")
+[Environment]::SetEnvironmentVariable("DASH_COMPACT_SUMMARIZE_BASE", "http://172.17.7.90:4000/v1", "User")
+[Environment]::SetEnvironmentVariable("DASH_COMPACT_SUMMARIZE_MODEL", "company-code", "User")
 ```
 
-密钥**只从环境变量读**，禁止写进仓库。
+密钥**只从环境变量读**，禁止写进仓库。未设置 `DASH_COMPACT_SUMMARIZE_*` 时摘要回退用 `COMPANY_LLM_*`。
 
 ### 启动代理（主路径）
 
@@ -238,17 +253,23 @@ Get-ChildItem -Path $env:USERPROFILE -Recurse -Include *.jsonl,*.json -ErrorActi
 | Phase 1：`tokens.py` / `strip_heavy.py` / `micro_compact.py` + 单测 | **已完成** |
 | Phase 2：`prompt.txt` / `engine.py` + mock e2e 加固 | **已完成** |
 | Phase 3：`proxy.py`（content-hash / 异步注入 / 流式透传 / health） | **已完成** |
-| Phase 4：`session_reader.py` / `compact.py` 应急 CLI | **已完成**（`pytest tests` 44 passed） |
+| Phase 4：`session_reader.py` / `compact.py` 应急 CLI | **已完成** |
 | 留新压旧 + 滚动摘要 merge | **已实现并挂到代理** |
 | 应急 CLI（session → brief.md） | **已完成**（复用 engine 摘要 + 近期 verbatim） |
 | 真实 DSH session 样本 | **有**：`~\.dsh-compact\samples\session_probe.json` |
 | Phase 3 DSH 烟测（Base URL → `:4001`） | **已做**：透传 / compress / inject |
-| Phase 5：自启脚本 + 文件日志 + 429 重试/空闲再压 | **代码已就绪**（proxy **v0.4.0**）；人工勾选见 `notes/phase5-checklist.md` |
+| 稠密 agent 切点 + `reasoning_content` 摘要回退 | **已做**（真实流量已见 `Compression #N` + `injected=True`） |
+| 摘要独立凭证 `DASH_COMPACT_SUMMARIZE_*` | **已做**（另一把 key，避免抢 `max_parallel_requests`） |
+| Phase 5：自启 / 日志 / 429 重试 / 空闲再压 | **代码已就绪**（proxy **v0.4.0**）；部署手册 [`HOW_TO_DEPLOY.md`](HOW_TO_DEPLOY.md)；人工勾选 [`notes/phase5-checklist.md`](notes/phase5-checklist.md) |
+| 单测 | **`pytest tests` → 56 passed** |
 
 ### Phase 5 一键（Windows）
 
+完整步骤与排错见 [`HOW_TO_DEPLOY.md`](HOW_TO_DEPLOY.md)。最短路径：
+
 ```powershell
 [Environment]::SetEnvironmentVariable("COMPANY_LLM_KEY", "sk-...", "User")  # 一次即可
+[Environment]::SetEnvironmentVariable("DASH_COMPACT_SUMMARIZE_KEY", "sk-sum-...", "User")  # 推荐另一把
 powershell -ExecutionPolicy Bypass -File .\scripts\install_autostart.ps1
 Start-Process "$env:USERPROFILE\.dsh-compact\run_proxy_task.cmd"
 curl.exe http://127.0.0.1:4001/health
@@ -259,4 +280,4 @@ curl.exe http://127.0.0.1:4001/health
 
 ## 给执行 AI 的一句话
 
-Phase 0–5 代码与脚本已齐（proxy v0.4.0）：生产阈值 180K/80K、登录自启脚本、摘要 429 重试与空闲后再压。剩余是人机 checklist：DSH Base URL、自启验证、三演练（`notes/phase5-checklist.md`）。
+Phase 0–5 代码与脚本已齐（proxy v0.4.0）：生产阈值 180K/80K、登录自启、摘要 429 重试/空闲再压、稠密会话切点、`reasoning_content` 回退、可选独立摘要 key。同事安装看 `HOW_TO_DEPLOY.md`；人工勾选看 `notes/phase5-checklist.md`。

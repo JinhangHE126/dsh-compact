@@ -29,3 +29,7 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# Local tool caches (never commit)
+_rea_npm_cache/
+_pytest_tmp/

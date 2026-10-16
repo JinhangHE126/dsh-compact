@@ -88,12 +88,12 @@
 
 ## 5. 落地顺序建议
 
-**Phase 0–4 已完成**（含 DSH 经本地代理的压缩/注入烟测）→ **下一步 Phase 5：**
+**Phase 0–5 代码已齐**（含真实流量压缩/注入、独立摘要 key）。同事安装 → `HOW_TO_DEPLOY.md`；人工勾选 → `notes/phase5-checklist.md`。
 
 1. ~~`tokens.py`~~ ✅
 2. ~~`strip_heavy.py` + `micro_compact.py`~~ ✅
 3. ~~`prompt.txt`~~ ✅
-4. ~~`engine.py` + mock e2e（混合会话 / 熔断 / merge）~~ ✅
+4. ~~`engine.py` + mock e2e（混合会话 / 熔断 / merge / 稠密切点）~~ ✅
 5. ~~`proxy.py`~~ ✅（DSH Base URL → `:4001` 烟测通过）
 6. ~~应急 `session_reader.py` / `compact.py`~~ ✅
-7. ~~Phase 5 脚本：自启 / 文件日志 / 429 重试+空闲再压~~ ✅ → 人工勾选 `notes/phase5-checklist.md`
+7. ~~Phase 5：自启 / 日志 / 429 重试 / 空闲再压 / `DASH_COMPACT_SUMMARIZE_*`~~ ✅

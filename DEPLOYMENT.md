@@ -1,7 +1,8 @@
 # dsh-compact 部署方案（v1）
 
-> 配套：`README.md`（需求与算法设计）、`REFERENCE_MAPPING.md`（从开源抄什么）。
-> 本文件回答：**建议的架构是什么、关键取舍为什么、以及从零到一的实现方案、怎么部署、怎么验收、怎么回滚。**
+> **只想按步骤装好用：** 请先看 [`HOW_TO_DEPLOY.md`](HOW_TO_DEPLOY.md)（面向同事的安装手册）。  
+> 配套：`README.md`（需求与算法设计）、`REFERENCE_MAPPING.md`（从开源抄什么）。  
+> 本文件回答：**建议的架构是什么、关键取舍为什么、以及从零到一的实现方案、怎么部署、怎么验收、怎么回滚。**  
 > 适用范围：v1 —— 本地透明代理（主）+ 离线 CLI（应急 fallback），Windows，Python 3.10+。
 
 ---
@@ -139,7 +140,7 @@ python scripts/gate_e_summarize_probe.py
 
 抓包还确认：请求含 `stream`/`stream_options`/`tools`/`store`/`max_completion_tokens` → 代理须流式透传、正确处理 tool 切点、未知字段原样转发。`user-agent: deepseek-harness/0.2.0-rc.2`。
 
-**Phase 0 通过 → 已完成 Phase 1–4；当前进入 Phase 5（§7 / §8）。**
+**Phase 0–5 代码已齐；同事安装见 [`HOW_TO_DEPLOY.md`](HOW_TO_DEPLOY.md)；人工勾选见 [`notes/phase5-checklist.md`](notes/phase5-checklist.md)。**
 
 ---
 
@@ -231,7 +232,7 @@ Phase 0 抓包确认：**无会话头、body 无会话 id**。v1 采用：
 
 ```powershell
 pip install -r requirements.txt
-python -m pytest tests -v   # 全仓现 44 passed
+python -m pytest tests -v   # 全仓现 56 passed
 ```
 
 **本阶段不依赖公司网关。**
@@ -242,7 +243,7 @@ python -m pytest tests -v   # 全仓现 44 passed
 | 交付                                                   | 内容                                                                   | 验收  |
 | ---------------------------------------------------- | -------------------------------------------------------------------- | --- |
 | `prompt.txt`                                         | 滚动 merge 中文模板（Active Goal / Timeline / … / Next Step）                | ✅   |
-| `engine.py`                                          | `should_compact` / `compress` / `auto_compact`；切点安全；滚动 merge；分片摘要；熔断 | ✅   |
+| `engine.py`                                          | `should_compact` / `compress` / `auto_compact`；切点安全（含稠密 agent / assistant 边界兜底）；滚动 merge；分片摘要；`reasoning_content` 回退；熔断 | ✅   |
 | `tests/test_engine.py`                               | fake summarizer + httpx MockTransport                                | ✅   |
 | `tests/mock_gateway.py` + `tests/test_engine_e2e.py` | 线程内 mock（可配 200/500/空 choices/usage）；混合会话；分片截断；HTTP 熔断；多次 merge      | ✅   |
 
@@ -265,7 +266,7 @@ python -m pytest tests -v
 | ------------------ | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | `proxy.py`         | `get_session_key`（header 优先，否则 content-hash）；前缀 hash 缓存注入；异步/`HARD_LIMIT` 同步压缩；chunked 流式透传；`/health` `/stats` | ✅ `tests/test_proxy.py`                                                                     |
 | 注入模型               | DSH 全量重发 transcript → 缓存按 `source_len` 前缀匹配 → 发出 `compressed + messages[n:]`                                   | ✅ 后台压完后下一轮含 `SUMMARY_MARKER` + 最新 user                                                      |
-| DSH 手测（2026-10-14） | Base URL → `:4001`；临时低 TRIGGER 验证压/注                                                                           | ✅ `Forwarding` / `compress done` / `injected=True`；遇 `429 max_parallel_requests=2`（摘要与主聊抢槽） |
+| DSH 手测（2026-10-14 / 10-16） | Base URL → `:4001`；低 TRIGGER 与真实长会话验证压/注 | ✅ `Compression #N` / `injected=True`；429 为并行配额（用 `DASH_COMPACT_SUMMARIZE_KEY` 隔离） |
 
 
 ```powershell
@@ -278,7 +279,7 @@ curl http://127.0.0.1:4001/health
 # DSH CompanyCode Base URL → http://127.0.0.1:4001/v1
 ```
 
-`/health`：`service, version, pid, uptime_s, active_requests, enabled, compressions_total, tokens_saved_total, …`  
+`/health`：`service, version, pid, uptime_s, active_requests, enabled, compressions_total, tokens_saved_total, upstream, summarizer, summarizer_model, summarizer_separate, trigger, target, …`  
 `/stats`：每会话 peak/compressions/error + cache 摘要。
 
 手测压压缩时可临时降 `DASH_COMPACT_TRIGGER`（如 2000）；**测完必须改回 180000**，否则会过于频繁摘要并易触发 429。
@@ -299,25 +300,30 @@ python compact.py "$env:USERPROFILE\.dsh-compact\samples\session_probe.json" -o 
 python compact.py path\to\session.jsonl -o brief.md --recent-rounds 5
 ```
 
-### Phase 5：部署与演练 — **脚本已就绪（人工演练见 checklist）**
+### Phase 5：部署与演练 — **代码已齐（安装手册 + 人工 checklist）**
 
 | 交付 | 内容 | 状态 |
 |---|---|---|
 | 文件日志 | `~\.dsh-compact\logs\proxy.log` 轮转 | ✅ `proxy.configure_logging`（v0.4.0） |
 | 429 缓解 | 摘要遇 429/503 指数退避重试；后台压前等 HTTP 空闲 | ✅ + `DASH_COMPACT_MAX_CONCURRENT` 默认 **1** |
+| 独立摘要 key | `DASH_COMPACT_SUMMARIZE_BASE/KEY/MODEL`（不抢聊天并行配额） | ✅ `/health.summarizer_separate` |
 | 本机目录 + 生产 env | `scripts/setup_home.ps1` | ✅ |
 | 登录自启 | `scripts/install_autostart.ps1` / `uninstall_autostart.ps1` | ✅ |
-| 演练清单 | `notes/phase5-checklist.md`（DSH 接入 / 自启 / 三演练） | ✅ 待你勾选 |
+| 安装手册 | [`HOW_TO_DEPLOY.md`](HOW_TO_DEPLOY.md) | ✅ |
+| 演练清单 | `notes/phase5-checklist.md`（DSH 接入 / 自启 / 三演练） | ✅ 待勾选 |
+
+一步步安装请直接跟 [`HOW_TO_DEPLOY.md`](HOW_TO_DEPLOY.md)。最短命令：
 
 ```powershell
 [Environment]::SetEnvironmentVariable("COMPANY_LLM_KEY", "sk-...", "User")
+[Environment]::SetEnvironmentVariable("DASH_COMPACT_SUMMARIZE_KEY", "sk-sum-...", "User")
 powershell -ExecutionPolicy Bypass -File .\scripts\setup_home.ps1
 powershell -ExecutionPolicy Bypass -File .\scripts\install_autostart.ps1
 Start-Process "$env:USERPROFILE\.dsh-compact\run_proxy_task.cmd"
 curl.exe http://127.0.0.1:4001/health
 ```
 
-人工步骤（无法由仓库代做）：写 User 级 `COMPANY_LLM_KEY`、DSH Base URL、注销验证自启、三演练勾选 → `notes/phase5-checklist.md`。
+人工步骤（无法由仓库代做）：写 User 级密钥、DSH Base URL、注销验证自启、三演练勾选 → `notes/phase5-checklist.md`。
 
 ---
 
@@ -344,10 +350,16 @@ pip install -r requirements.txt   # 仅 httpx
 ### 6.2 环境变量（用户级，**密钥禁止入仓库/脚本**）
 
 ```powershell
-# --- LLM 凭证 ---
+# --- LLM 凭证（聊天透传上游） ---
 [Environment]::SetEnvironmentVariable("COMPANY_LLM_KEY",   "sk-...",   "User")
 [Environment]::SetEnvironmentVariable("COMPANY_LLM_BASE",  "http://172.17.7.90:4000/v1", "User")
 [Environment]::SetEnvironmentVariable("COMPANY_LLM_MODEL", "company-code", "User")
+
+# --- 摘要专用凭证（强烈推荐：另一把 api_key，不抢聊天的 max_parallel_requests=2） ---
+# 不设则回退用上面的 COMPANY_LLM_*（会与聊天抢并行配额）
+[Environment]::SetEnvironmentVariable("DASH_COMPACT_SUMMARIZE_KEY",   "sk-sum-...", "User")
+[Environment]::SetEnvironmentVariable("DASH_COMPACT_SUMMARIZE_BASE",  "http://172.17.7.90:4000/v1", "User")
+[Environment]::SetEnvironmentVariable("DASH_COMPACT_SUMMARIZE_MODEL", "company-code", "User")
 
 # --- 代理策略（Gate-E 已校准：TRIGGER=180K / TARGET=80K） ---
 [Environment]::SetEnvironmentVariable("DASH_COMPACT_PORT",             "4001",  "User")
@@ -366,7 +378,7 @@ pip install -r requirements.txt   # 仅 httpx
 [Environment]::SetEnvironmentVariable("DASH_COMPACT_DISABLE",          "0",     "User")
 ```
 
-改环境变量后：已运行的 DSH 与代理需新起才生效。
+改环境变量后：已运行的 DSH 与代理需新起才生效。`/health` 里 `summarizer_separate: true` 表示已启用独立摘要 key。
 
 ### 6.3 端口
 
@@ -384,7 +396,7 @@ pip install -r requirements.txt   # 仅 httpx
 | 0   | Phase 0 五 Gate（§3.1 / §3.3）         | **已完成 2026-10-14**：content-hash；TRIGGER=180K；TARGET=80K |
 | 1   | Phase 1 基础模块                        | **已完成**                                                 |
 | 2   | Phase 2 引擎 + mock 网关 e2e            | **已完成**                                                 |
-| 3   | Phase 3 代理 + 单测 + DSH 烟测            | **已完成**：`pytest` 44；DSH 经 `:4001` 透传/压缩/注入已验证           |
+| 3   | Phase 3 代理 + 单测 + DSH 烟测            | **已完成**：`pytest` 56；DSH 经 `:4001` 透传/压缩/注入已验证           |
 | 4   | DSH 接本地代理（§8.1），生产 TRIGGER=180K 日常用 | **待勾选** `notes/phase5-checklist.md` §1 |
 | 5   | 登录自启（§8.2）+ `install_autostart.ps1`     | **脚本已提供**；注销验证待勾选 checklist §2 |
 | 6   | 三演练：①熔断 ②off ③回滚（§8.4）              | **待勾选** checklist §3 |
@@ -415,9 +427,11 @@ pip install -r requirements.txt   # 仅 httpx
 cd C:\Users\pg9\Desktop\dsh-compact
 # 密钥必须写成 User 环境变量（自启进程读不到会话里临时 $env:）
 [Environment]::SetEnvironmentVariable("COMPANY_LLM_KEY", "sk-...", "User")
+[Environment]::SetEnvironmentVariable("DASH_COMPACT_SUMMARIZE_KEY", "sk-sum-...", "User")  # 推荐
 powershell -ExecutionPolicy Bypass -File .\scripts\install_autostart.ps1
 Start-Process -FilePath "$env:USERPROFILE\.dsh-compact\run_proxy_task.cmd"
 curl.exe http://127.0.0.1:4001/health
+# 完整步骤见 HOW_TO_DEPLOY.md
 ```
 
 卸载：`.\scripts\uninstall_autostart.ps1`。
@@ -499,7 +513,8 @@ taskkill /IM pythonw.exe /F 2>$null
 
 | 变量                                      | 默认        | 说明                      |
 | --------------------------------------- | --------- | ----------------------- |
-| `COMPANY_LLM_KEY/BASE/MODEL`            | —         | 网关凭证，只从 env 读           |
+| `COMPANY_LLM_KEY/BASE/MODEL`            | —         | 聊天上游 / 摘要回退凭证，只从 env 读 |
+| `DASH_COMPACT_SUMMARIZE_KEY/BASE/MODEL` | 回退 COMPANY_* | **推荐**：摘要专用凭证（另一把 key，不抢并行配额） |
 | `DASH_COMPACT_PORT`                     | 4001      | 本地代理端口                  |
 | `DASH_COMPACT_TRIGGER`                  | 180000    | 触发线（Gate-E 冻结）          |
 | `DASH_COMPACT_TARGET`                   | 80000     | 压缩后近期原文上限（Gate-E 冻结）    |
@@ -530,4 +545,4 @@ taskkill /IM pythonw.exe /F 2>$null
 
 ## 附录 C：给执行 AI 的一句话
 
-**Phase 0–4 已完成；Phase 5 脚本与 429 缓解已落地（proxy v0.4.0）。** 请按 `notes/phase5-checklist.md` 勾选 DSH 接入 / 自启 / 三演练。冻结：TRIGGER=180K、TARGET=80K、身份=content-hash。
+**Phase 0–5 代码已齐（proxy v0.4.0）。** 同事安装 → `HOW_TO_DEPLOY.md`；人工勾选 → `notes/phase5-checklist.md`。冻结：TRIGGER=180K、TARGET=80K、身份=content-hash；摘要宜配独立 `DASH_COMPACT_SUMMARIZE_KEY`。
