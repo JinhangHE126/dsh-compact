@@ -2,6 +2,8 @@
 
 给同事的**从零安装 → 日常使用 → 排错**说明。设计细节见 [`DEPLOYMENT.md`](DEPLOYMENT.md)；验收勾选见 [`notes/phase5-checklist.md`](notes/phase5-checklist.md)。
 
+> **MacBook / macOS：** 见 [`HOW_TO_DEPLOY_MAC.md`](HOW_TO_DEPLOY_MAC.md)（不用本仓库的 `.ps1` 脚本）。
+
 ---
 
 ## 1. 它是干什么的

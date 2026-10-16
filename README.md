@@ -4,7 +4,7 @@ DeepSeek Harness（DSH）会话上下文**自动压缩**：在 DSH 与公司 LLM
 
 **偏好：程序自动压缩，而不是**「跑工具出 `brief.md` → 开新会话粘贴续聊」。
 
-> **给同事部署：** 按步骤照做 → [`HOW_TO_DEPLOY.md`](HOW_TO_DEPLOY.md)  
+> **给同事部署：** Windows → [`HOW_TO_DEPLOY.md`](HOW_TO_DEPLOY.md)；MacBook → [`HOW_TO_DEPLOY_MAC.md`](HOW_TO_DEPLOY_MAC.md)  
 > 架构与设计细节 → [`DEPLOYMENT.md`](DEPLOYMENT.md)
 
 ---
@@ -82,7 +82,8 @@ dsh-compact/
   engine.py / prompt.txt   # 留新压旧 + 滚动 merge
   tokens.py / strip_heavy.py / micro_compact.py
   compact.py / session_reader.py   # 应急离线 CLI → brief.md
-  HOW_TO_DEPLOY.md         # 给同事的安装手册
+  HOW_TO_DEPLOY.md         # Windows 安装手册
+  HOW_TO_DEPLOY_MAC.md     # MacBook / macOS 安装手册
   DEPLOYMENT.md            # 架构 / 阶段 / 运维细则
   requirements.txt         # httpx
   tests/                   # 56 passed

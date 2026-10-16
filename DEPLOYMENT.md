@@ -1,6 +1,6 @@
 # dsh-compact 部署方案（v1）
 
-> **只想按步骤装好用：** 请先看 [`HOW_TO_DEPLOY.md`](HOW_TO_DEPLOY.md)（面向同事的安装手册）。  
+> **只想按步骤装好用：** Windows → [`HOW_TO_DEPLOY.md`](HOW_TO_DEPLOY.md)；Mac → [`HOW_TO_DEPLOY_MAC.md`](HOW_TO_DEPLOY_MAC.md)。  
 > 配套：`README.md`（需求与算法设计）、`REFERENCE_MAPPING.md`（从开源抄什么）。  
 > 本文件回答：**建议的架构是什么、关键取舍为什么、以及从零到一的实现方案、怎么部署、怎么验收、怎么回滚。**  
 > 适用范围：v1 —— 本地透明代理（主）+ 离线 CLI（应急 fallback），Windows，Python 3.10+。
