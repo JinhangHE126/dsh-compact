@@ -341,6 +341,42 @@ def test_compress_dense_agent_session_keeps_recent_user():
     assert out["messages"][-1] == _user("please continue")
 
 
+def test_compress_falls_back_to_assistant_boundary_when_no_plain_user():
+    """Phase 5b regression: fresh dense session — the only plain user is the
+    initial prompt (which sits at the floor), everything after is
+    assistant/tool, and the session ends mid-loop with an open tool call.
+    The cut must fall back to a mid-run assistant boundary instead of
+    no-op'ing, and the kept tail must start with that assistant."""
+    calls = {"n": 0}
+
+    def fake_summarize(prompt: str) -> str:
+        calls["n"] += 1
+        return "## Active Goal\n- x\n## Next Step\n- y"
+
+    big = "Z" * 20_000
+    msgs = [{"role": "system", "content": "sys"}]
+    msgs.append(_user("original task"))  # sole plain user, at the floor
+    # Old rounds: assistant(tool)/tool pairs
+    for i in range(8):
+        msgs.append(_assistant_tools(f"c{i}"))
+        msgs.append(_tool(f"c{i}", big))
+    # End mid-loop: call issued, no result yet
+    msgs.append(_assistant_tools("c8"))
+
+    engine = CompactEngine(
+        trigger_tokens=50_000,
+        target_tokens=10_000,
+        summarize=fake_summarize,
+    )
+    out = engine.compress(msgs, {"prompt_tokens": 180_000})
+    assert out is not None, "assistant boundary must compress, not no-op"
+    assert calls["n"] >= 1
+    assert SUMMARY_MARKER in out["messages"][1]["content"]
+    # Kept tail starts at the mid-run assistant and survives verbatim
+    assert out["messages"][-1] == _assistant_tools("c8")
+    assert out["post_tokens"] < out["pre_tokens"]
+
+
 def test_safe_cut_relaxed_allows_unmatched_tool_prev():
     """Strict mode refuses a cut whose prev is an unmatched tool_use; with
     allow_tool_prev the unmatched pair is dropped into the summary instead
