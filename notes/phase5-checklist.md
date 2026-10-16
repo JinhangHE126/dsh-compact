@@ -1,6 +1,7 @@
 # Phase 5 部署与演练清单
 
-> 配套：`DEPLOYMENT.md` §7 / §8。代码侧已提供：文件日志、摘要 429 重试、空闲后再压、登录自启脚本。
+> **安装步骤照做：** [`HOW_TO_DEPLOY.md`](../HOW_TO_DEPLOY.md)  
+> 配套：`DEPLOYMENT.md` §7 / §8。代码侧已提供：文件日志、摘要 429 重试、空闲后再压、登录自启、独立摘要 key、稠密会话切点。
 
 ## 0. 一次性本机准备
 
@@ -8,15 +9,19 @@
 cd C:\Users\pg9\Desktop\dsh-compact
 # 必须 User 级密钥（登录自启读不到临时 $env:）
 [Environment]::SetEnvironmentVariable("COMPANY_LLM_KEY", "sk-...", "User")
+# 推荐：摘要另用一把 key，避免抢聊天的 max_parallel_requests
+[Environment]::SetEnvironmentVariable("DASH_COMPACT_SUMMARIZE_KEY", "sk-sum-...", "User")
+[Environment]::SetEnvironmentVariable("DASH_COMPACT_SUMMARIZE_BASE", "http://172.17.7.90:4000/v1", "User")
 
 powershell -ExecutionPolicy Bypass -File .\scripts\setup_home.ps1
 powershell -ExecutionPolicy Bypass -File .\scripts\install_autostart.ps1
 # 立即启动（HKCU Run / Startup；计划任务可能因权限不可用）
 Start-Process -FilePath "$env:USERPROFILE\.dsh-compact\run_proxy_task.cmd"
+# 新开终端再 curl（才能读到刚写的 User 环境变量）
 curl.exe http://127.0.0.1:4001/health
 ```
 
-确认 `health` 里 `version` ≥ `0.4.0`，`enabled: true`，且 User 环境 `DASH_COMPACT_TRIGGER=180000`。
+确认 `health` 里：`version` ≥ `0.4.0`，`enabled: true`，`trigger` = `180000`；若配了独立摘要 key，则 `summarizer_separate: true`。
 
 日志：`%USERPROFILE%\.dsh-compact\logs\proxy.log`
 
@@ -26,6 +31,7 @@ curl.exe http://127.0.0.1:4001/health
 | setup_home + 生产阈值 | ☐   |
 | install_autostart | ☐   |
 | `/health` 200     | ☐   |
+| （推荐）`summarizer_separate: true` | ☐   |
 
 
 
@@ -35,12 +41,14 @@ curl.exe http://127.0.0.1:4001/health
 1. CompanyCode Base URL = `http://127.0.0.1:4001/v1` → Apply → 重启 DSH
 2. 正常聊几轮；日志出现 `[MSG] Forwarding...`
 3. 生产阈值下短会话**不会**每轮压缩（需接近 180K）— 属预期
+4. 长会话过 trigger 后应见 `Compression #N` 与后续 `injected=True`（手测可临时降 TRIGGER，测完改回 180000）
 
 
 | 项                  | 状态  |
 | ------------------ | --- |
 | Base URL 指向代理      | ☐   |
 | 短会话可聊 / Forwarding | ☐   |
+| 过阈值后压缩+注入生效 | ☐   |
 
 
 

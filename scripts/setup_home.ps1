@@ -49,3 +49,5 @@ if (-not (Test-Path $VenvPy)) {
 
 Write-Host "Home ready: $HomeDir"
 Write-Host "Ensure COMPANY_LLM_KEY is set (User env) before starting the proxy."
+Write-Host "Recommended: also set DASH_COMPACT_SUMMARIZE_KEY (separate key) so summarize does not steal chat parallel quota."
+Write-Host "Full guide: HOW_TO_DEPLOY.md"

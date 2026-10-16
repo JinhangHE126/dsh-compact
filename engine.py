@@ -239,9 +239,27 @@ def make_http_summarizer(
     Retries on HTTP 429 / 503 with exponential backoff (helps when chat and
     summarizer share a low max_parallel_requests quota).
     """
-    base = (base_url or os.environ.get("COMPANY_LLM_BASE") or "").rstrip("/")
-    key = api_key or os.environ.get("COMPANY_LLM_KEY") or ""
-    mdl = model or os.environ.get("COMPANY_LLM_MODEL") or "company-code"
+    # Prefer dedicated summarizer credentials so chat and summarize do not
+    # share the same api_key max_parallel_requests quota. Fall back to the
+    # company chat credentials when unset.
+    base = (
+        base_url
+        or os.environ.get("DASH_COMPACT_SUMMARIZE_BASE")
+        or os.environ.get("COMPANY_LLM_BASE")
+        or ""
+    ).rstrip("/")
+    key = (
+        api_key
+        or os.environ.get("DASH_COMPACT_SUMMARIZE_KEY")
+        or os.environ.get("COMPANY_LLM_KEY")
+        or ""
+    )
+    mdl = (
+        model
+        or os.environ.get("DASH_COMPACT_SUMMARIZE_MODEL")
+        or os.environ.get("COMPANY_LLM_MODEL")
+        or "company-code"
+    )
     owns_client = client is None
     http = client or httpx.Client(timeout=timeout)
     retries = (
@@ -252,7 +270,10 @@ def make_http_summarizer(
 
     def summarize(prompt: str) -> str:
         if not base or not key:
-            raise RuntimeError("COMPANY_LLM_BASE / COMPANY_LLM_KEY required for summarizer")
+            raise RuntimeError(
+                "Summarizer credentials required: set DASH_COMPACT_SUMMARIZE_BASE/KEY "
+                "or COMPANY_LLM_BASE/KEY"
+            )
         url = f"{base}/chat/completions"
         headers = {"Authorization": f"Bearer {key}"}
 

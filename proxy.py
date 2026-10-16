@@ -148,6 +148,47 @@ class SessionStats:
     in_flight: bool = False
 
 
+def resolve_summarizer_config(
+    *,
+    chat_base: str,
+    chat_key: Optional[str] = None,
+    chat_model: Optional[str] = None,
+) -> dict[str, str]:
+    """Resolve summarizer BASE/KEY/MODEL.
+
+    Dedicated ``DASH_COMPACT_SUMMARIZE_*`` vars win so compress traffic can use
+    a different api_key (and thus its own max_parallel_requests quota). Falls
+    back to the chat/company credentials when unset.
+    """
+    base = (
+        os.environ.get("DASH_COMPACT_SUMMARIZE_BASE")
+        or chat_base
+        or os.environ.get("COMPANY_LLM_BASE")
+        or ""
+    ).rstrip("/")
+    key = (
+        os.environ.get("DASH_COMPACT_SUMMARIZE_KEY")
+        or chat_key
+        or os.environ.get("COMPANY_LLM_KEY")
+        or ""
+    )
+    model = (
+        os.environ.get("DASH_COMPACT_SUMMARIZE_MODEL")
+        or chat_model
+        or os.environ.get("COMPANY_LLM_MODEL")
+        or "company-code"
+    )
+    separate = bool(os.environ.get("DASH_COMPACT_SUMMARIZE_KEY")) or bool(
+        os.environ.get("DASH_COMPACT_SUMMARIZE_BASE")
+    )
+    return {
+        "base_url": base,
+        "api_key": key,
+        "model": model,
+        "separate": "1" if separate else "0",
+    }
+
+
 class ProxyState:
     def __init__(
         self,
@@ -156,11 +197,17 @@ class ProxyState:
         engine: CompactEngine,
         max_concurrent: int = DEFAULT_MAX_CONCURRENT,
         disabled: bool = False,
+        summarizer_base: Optional[str] = None,
+        summarizer_model: Optional[str] = None,
+        summarizer_separate: bool = False,
     ) -> None:
         self.upstream_base = upstream_base.rstrip("/")
         self.engine = engine
         self.max_concurrent = max_concurrent
         self.disabled = disabled
+        self.summarizer_base = (summarizer_base or upstream_base).rstrip("/")
+        self.summarizer_model = summarizer_model or "company-code"
+        self.summarizer_separate = summarizer_separate
         self.started_at = time.time()
         self.active_requests = 0
         self.compressions_total = 0
@@ -308,6 +355,9 @@ class ProxyState:
                 "cache_entries": len(self._entries),
                 "inflight": len(self._inflight_keys),
                 "upstream": self.upstream_base,
+                "summarizer": self.summarizer_base,
+                "summarizer_model": self.summarizer_model,
+                "summarizer_separate": self.summarizer_separate,
                 "trigger": self.engine.trigger_tokens,
                 "target": self.engine.target_tokens,
             }
@@ -557,10 +607,11 @@ def build_state_from_env() -> ProxyState:
     max_fail = int(os.environ.get("DASH_COMPACT_MAX_FAILURES", str(DEFAULT_MAX_FAILURES)))
     micro_keep = int(os.environ.get("DASH_COMPACT_MICRO_KEEP", "5"))
 
+    sum_cfg = resolve_summarizer_config(chat_base=upstream)
     summarize = make_http_summarizer(
-        base_url=upstream,
-        api_key=os.environ.get("COMPANY_LLM_KEY"),
-        model=os.environ.get("COMPANY_LLM_MODEL") or "company-code",
+        base_url=sum_cfg["base_url"],
+        api_key=sum_cfg["api_key"],
+        model=sum_cfg["model"],
     )
     engine = CompactEngine(
         trigger_tokens=trigger,
@@ -575,6 +626,9 @@ def build_state_from_env() -> ProxyState:
         engine=engine,
         max_concurrent=max_conc,
         disabled=disabled,
+        summarizer_base=sum_cfg["base_url"],
+        summarizer_model=sum_cfg["model"],
+        summarizer_separate=sum_cfg["separate"] == "1",
     )
 
 
@@ -591,6 +645,8 @@ def serve(
     print(
         f"dsh-compact proxy v{VERSION} on http://{host}:{port}\n"
         f"  upstream={STATE.upstream_base}\n"
+        f"  summarizer={STATE.summarizer_base} model={STATE.summarizer_model}"
+        f" separate={STATE.summarizer_separate}\n"
         f"  trigger={STATE.engine.trigger_tokens} target={STATE.engine.target_tokens}\n"
         f"  disabled={STATE.disabled} pid={h['pid']}",
         flush=True,

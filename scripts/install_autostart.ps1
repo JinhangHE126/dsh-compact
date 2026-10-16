@@ -58,3 +58,7 @@ if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable("COMPANY_
     Write-Host "WARNING: Set User COMPANY_LLM_KEY before relying on autostart:"
     Write-Host '  [Environment]::SetEnvironmentVariable("COMPANY_LLM_KEY", "sk-...", "User")'
 }
+if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable("DASH_COMPACT_SUMMARIZE_KEY", "User"))) {
+    Write-Host "NOTE: Optional separate summarizer key (avoids stealing chat parallel quota):"
+    Write-Host '  [Environment]::SetEnvironmentVariable("DASH_COMPACT_SUMMARIZE_KEY", "sk-sum-...", "User")'
+}

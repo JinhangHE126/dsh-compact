@@ -15,6 +15,7 @@ from proxy import (
     ProxyState,
     content_hash,
     get_session_key,
+    resolve_summarizer_config,
     serve,
 )
 
@@ -109,9 +110,37 @@ def test_health_and_stats(proxy_pair):
     assert h["service"] == "dsh-compact"
     assert "version" in h
     assert h["enabled"] is True
+    assert "summarizer" in h
+    assert "summarizer_model" in h
+    assert "summarizer_separate" in h
     s = httpx.get(f"{proxy_base}/stats", timeout=5.0).json()
     assert "sessions" in s
     assert "cache" in s
+
+
+def test_resolve_summarizer_config_falls_back_to_chat(monkeypatch):
+    monkeypatch.delenv("DASH_COMPACT_SUMMARIZE_BASE", raising=False)
+    monkeypatch.delenv("DASH_COMPACT_SUMMARIZE_KEY", raising=False)
+    monkeypatch.delenv("DASH_COMPACT_SUMMARIZE_MODEL", raising=False)
+    monkeypatch.setenv("COMPANY_LLM_KEY", "sk-chat")
+    monkeypatch.setenv("COMPANY_LLM_MODEL", "company-code")
+    cfg = resolve_summarizer_config(chat_base="http://chat.example/v1")
+    assert cfg["base_url"] == "http://chat.example/v1"
+    assert cfg["api_key"] == "sk-chat"
+    assert cfg["model"] == "company-code"
+    assert cfg["separate"] == "0"
+
+
+def test_resolve_summarizer_config_prefers_dedicated(monkeypatch):
+    monkeypatch.setenv("DASH_COMPACT_SUMMARIZE_BASE", "http://sum.example/v1")
+    monkeypatch.setenv("DASH_COMPACT_SUMMARIZE_KEY", "sk-sum")
+    monkeypatch.setenv("DASH_COMPACT_SUMMARIZE_MODEL", "cheap-summary")
+    monkeypatch.setenv("COMPANY_LLM_KEY", "sk-chat")
+    cfg = resolve_summarizer_config(chat_base="http://chat.example/v1")
+    assert cfg["base_url"] == "http://sum.example/v1"
+    assert cfg["api_key"] == "sk-sum"
+    assert cfg["model"] == "cheap-summary"
+    assert cfg["separate"] == "1"
 
 
 def test_stream_passthrough_chat(proxy_pair):
