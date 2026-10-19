@@ -21,7 +21,7 @@ function Set-UserEnvIfMissing([string]$Name, [string]$Value) {
     }
 }
 
-Set-UserEnvIfMissing "COMPANY_LLM_BASE"  "http://172.17.7.90:4000/v1"
+Set-UserEnvIfMissing "COMPANY_LLM_BASE"  "http://llm-gateway.example:4000/v1"
 Set-UserEnvIfMissing "COMPANY_LLM_MODEL" "company-code"
 Set-UserEnvIfMissing "DASH_COMPACT_PORT" "4001"
 Set-UserEnvIfMissing "DASH_COMPACT_TRIGGER" "180000"

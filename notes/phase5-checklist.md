@@ -6,12 +6,12 @@
 ## 0. 一次性本机准备
 
 ```powershell
-cd C:\Users\pg9\Desktop\dsh-compact
+cd C:\Users\<你>\Desktop\dsh-compact
 # 必须 User 级密钥（登录自启读不到临时 $env:）
 [Environment]::SetEnvironmentVariable("COMPANY_LLM_KEY", "sk-...", "User")
 # 推荐：摘要另用一把 key，避免抢聊天的 max_parallel_requests
 [Environment]::SetEnvironmentVariable("DASH_COMPACT_SUMMARIZE_KEY", "sk-sum-...", "User")
-[Environment]::SetEnvironmentVariable("DASH_COMPACT_SUMMARIZE_BASE", "http://172.17.7.90:4000/v1", "User")
+[Environment]::SetEnvironmentVariable("DASH_COMPACT_SUMMARIZE_BASE", "http://llm-gateway.example:4000/v1", "User")
 
 powershell -ExecutionPolicy Bypass -File .\scripts\setup_home.ps1
 powershell -ExecutionPolicy Bypass -File .\scripts\install_autostart.ps1
@@ -103,7 +103,7 @@ curl.exe http://127.0.0.1:4001/health
 ### ③ 回滚直连
 
 ```powershell
-# DSH Base URL → http://172.17.7.90:4000/v1 ，重启 DSH
+# DSH Base URL → http://llm-gateway.example:4000/v1 ，重启 DSH
 # 可选：schtasks /End /TN dsh-compact-proxy
 ```
 

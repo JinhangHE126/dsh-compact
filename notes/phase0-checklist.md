@@ -3,7 +3,7 @@
 > 按顺序做：A → B/D（同一次）→ C → E。  
 > 工具：仓库根目录 `probe_server.py`；抓包落在 `probe_captures/`（已 gitignore）。
 
-日期：2026-10-14    操作人：pg9
+日期：2026-10-14    操作人：（已省略）
 
 **Phase 0 结论：全部 PASS，代理方案成立，可进入 Phase 1。**
 

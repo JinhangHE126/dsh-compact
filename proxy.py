@@ -608,7 +608,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
 
 def build_state_from_env() -> ProxyState:
-    upstream = os.environ.get("COMPANY_LLM_BASE") or "http://172.17.7.90:4000/v1"
+    upstream = os.environ.get("COMPANY_LLM_BASE") or "http://llm-gateway.example:4000/v1"
     disabled = os.environ.get("DASH_COMPACT_DISABLE", "0").strip() in ("1", "true", "yes")
     trigger = int(os.environ.get("DASH_COMPACT_TRIGGER", str(DEFAULT_TRIGGER)))
     target = int(os.environ.get("DASH_COMPACT_TARGET", str(DEFAULT_TARGET)))

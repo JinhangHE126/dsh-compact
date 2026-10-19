@@ -1,136 +1,136 @@
-# dsh-compact：Windows 启动（日常）
+# dsh-compact: Windows start (daily)
 
-从零一键安装见 [`HOW_TO_DEPLOY.md`](HOW_TO_DEPLOY.md)。  
-本文只讲：**已经装好后，用终端启动 / 停止 / 自启 / 自检**。
+**English** | [中文](HOW_TO_START_WINDOWS.zh-CN.md)
 
-Mac 同事 → [`HOW_TO_START_MAC.md`](HOW_TO_START_MAC.md)。
+One-shot install from scratch: [`HOW_TO_DEPLOY.md`](HOW_TO_DEPLOY.md) (local/internal).  
+This page covers **start / stop / autostart / health** after install.
+
+Mac → [`HOW_TO_START_MAC.md`](HOW_TO_START_MAC.md).
 
 ---
 
-## 前提（做一次即可）
+## Prerequisites (once)
 
-- 仓库在本机，例如：`C:\Users\<你>\Desktop\dsh-compact`
-- 已跑过：`scripts\setup_home.ps1`（venv + 目录 + 生产阈值）
-- 密钥写在 **User 级**环境变量（登录自启才能读到）
+- Repo on disk, e.g. `C:\Users\<you>\Desktop\dsh-compact`
+- Ran `scripts\setup_home.ps1` (venv + dirs + production thresholds)
+- Secrets in **User**-scoped environment variables (needed for login autostart)
 
-### 公司内网（默认）
+### Company intranet (example)
 
 ```powershell
-[Environment]::SetEnvironmentVariable("COMPANY_LLM_KEY",   "sk-你的聊天key", "User")
-[Environment]::SetEnvironmentVariable("COMPANY_LLM_BASE",  "http://172.17.7.90:4000/v1", "User")
+[Environment]::SetEnvironmentVariable("COMPANY_LLM_KEY",   "sk-your-chat-key", "User")
+[Environment]::SetEnvironmentVariable("COMPANY_LLM_BASE",  "http://llm-gateway.example:4000/v1", "User")
 [Environment]::SetEnvironmentVariable("COMPANY_LLM_MODEL", "company-code", "User")
-[Environment]::SetEnvironmentVariable("DASH_COMPACT_SUMMARIZE_KEY",   "sk-你的摘要key", "User")
-[Environment]::SetEnvironmentVariable("DASH_COMPACT_SUMMARIZE_BASE",  "http://172.17.7.90:4000/v1", "User")
+[Environment]::SetEnvironmentVariable("DASH_COMPACT_SUMMARIZE_KEY",   "sk-your-summary-key", "User")
+[Environment]::SetEnvironmentVariable("DASH_COMPACT_SUMMARIZE_BASE",  "http://llm-gateway.example:4000/v1", "User")
 [Environment]::SetEnvironmentVariable("DASH_COMPACT_SUMMARIZE_MODEL", "company-code", "User")
 ```
 
-### 家用公网（例如 DeepSeek）
+### Public API (e.g. DeepSeek)
 
-把 `BASE` 改成 `https://api.deepseek.com/v1`，`MODEL` 改成 `deepseek-chat`，摘要 key 用 DeepSeek key。
+Set `BASE` to `https://api.deepseek.com/v1`, `MODEL` to `deepseek-chat`, summarizer key = DeepSeek key.
 
-改完 User 变量后：**新开** PowerShell，再启动代理。
+After changing User env vars: **open a new** PowerShell, then start the proxy.
 
 ---
 
-## 方式 A：前台终端启动（调试用）
+## Mode A: foreground terminal (debug)
 
 ```powershell
-cd C:\Users\<你>\Desktop\dsh-compact
+cd C:\Users\<you>\Desktop\dsh-compact
 
-# 若 4001 已被占用，先结束旧进程
+# Free port 4001 if needed
 Get-NetTCPConnection -LocalPort 4001 -ErrorAction SilentlyContinue |
   ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
 
-# 用 venv 或系统 python
 & "$env:USERPROFILE\.dsh-compact\venv\Scripts\python.exe" .\proxy.py
-# 或：python .\proxy.py
+# or: python .\proxy.py
 ```
 
-期望看到：
+Expected:
 
 ```text
 dsh-compact proxy v0.4.0 on http://127.0.0.1:4001
   trigger=180000 target=80000
 ```
 
-**新开**一个 PowerShell：
+**New** PowerShell:
 
 ```powershell
 curl.exe http://127.0.0.1:4001/health
 ```
 
-停掉：前台窗口 `Ctrl+C`。
+Stop: `Ctrl+C` in the proxy window.
 
 ---
 
-## 方式 B：登录自启（推荐日常）
+## Mode B: login autostart (recommended)
 
 ```powershell
-cd C:\Users\<你>\Desktop\dsh-compact
+cd C:\Users\<you>\Desktop\dsh-compact
 powershell -ExecutionPolicy Bypass -File .\scripts\setup_home.ps1
 powershell -ExecutionPolicy Bypass -File .\scripts\install_autostart.ps1
 
-# 立刻启动（之后每次登录也会起）
 Start-Process -FilePath "$env:USERPROFILE\.dsh-compact\run_proxy_task.cmd"
 
-# 新开终端再验
+# New terminal to verify
 curl.exe http://127.0.0.1:4001/health
 ```
 
-自启做了什么：
+What autostart registers:
 
-- 注册表 `HKCU\...\Run` → `dsh-compact-proxy`
-- Startup 文件夹放启动 `.cmd`
-- 可选计划任务（没权限会跳过，不影响）
+- Registry `HKCU\...\Run` → `dsh-compact-proxy`
+- Startup folder `.cmd`
+- Optional scheduled task (skipped if no permission)
 
-卸载自启：
+Uninstall:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\uninstall_autostart.ps1
 ```
 
-日志：`%USERPROFILE%\.dsh-compact\logs\proxy.log`
+Logs: `%USERPROFILE%\.dsh-compact\logs\proxy.log`
 
 ---
 
-## DSH / Harness 配置
+## DSH / Harness settings
 
-| 项 | 值 |
+| Field | Value |
 | --- | --- |
 | Base URL | `http://127.0.0.1:4001/v1` |
-| API protocol | **OpenAI Chat Completions**（若客户端可选） |
-| API Key | 聊天用 Virtual Key / DeepSeek key |
-| 模型 | `company-code` 或 `deepseek-chat` |
+| API protocol | **OpenAI Chat Completions** (if selectable) |
+| API Key | Chat Virtual Key / DeepSeek key |
+| Model | `company-code` or `deepseek-chat` |
 
-Apply 后**重启会话 / 重启 DSH**。
+Apply, then **restart session / restart DSH**.
 
 ---
 
-## 怎么确认在工作
+## Verify it works
 
-| 日志 / 现象 | 含义 |
+| Log / signal | Meaning |
 | --- | --- |
-| `[MSG] Forwarding ... 200` | 透传成功 |
-| `Compression #N` | 后台压缩完成 |
-| `injected=True` 且 `tokens≈大->小` | 已注入压缩结果 |
-| `injected=False` 且未过 trigger | 正常，尚未压缩 |
+| `[MSG] Forwarding ... 200` | Pass-through OK |
+| `Compression #N` | Background compress finished |
+| `injected=True` and `tokens≈large->small` | Injection applied |
+| `injected=False` under trigger | Normal; not compacting yet |
 
-手测压缩：临时把 User 级 `DASH_COMPACT_TRIGGER` 降到 `50000`，**新开终端 + 重启代理**；测完改回 `180000`。
+Hand-test: temporarily set User `DASH_COMPACT_TRIGGER` to `50000`, **new terminal + restart proxy**; restore `180000` after.
 
-临时关压缩（仍透传）：
+Disable compaction (still pass-through):
 
 ```powershell
 [Environment]::SetEnvironmentVariable("DASH_COMPACT_DISABLE", "1", "User")
-# 重启代理；/health 里 enabled=false
+# restart proxy; /health shows enabled=false
 ```
 
-改回 `"0"` 再重启。
+Set back to `"0"` and restart.
 
 ---
 
-## 常见坑
+## Common pitfalls
 
-1. **只设了 `$env:FOO=...`**：当前窗口有效，登录自启读不到 → 必须用 `SetEnvironmentVariable(..., "User")`。  
-2. **改完 User 变量不新开终端**：旧进程仍是旧值。  
-3. **公司内网连不上**：需在公司网 / VPN；家里请改成公网 `BASE`。  
-4. **gzip / TRANSPORT**：若客户端带 `Accept-Encoding: gzip` 曾报 TRANSPORT，请确认用的是含「丢弃 Content-Encoding」修复的 `proxy.py`（≥ 当前仓库 HEAD）。
+1. **Only `$env:FOO=...`**: current shell only; login autostart will not see it → use `SetEnvironmentVariable(..., "User")`.
+2. **Changed User env but no new shell**: old process keeps old values.
+3. **Cannot reach intranet gateway**: company network / VPN, or switch to a public `BASE`.
+4. **gzip / TRANSPORT**: if the client sends `Accept-Encoding: gzip`, use a `proxy.py` that strips `Content-Encoding` after decode (current repo HEAD).

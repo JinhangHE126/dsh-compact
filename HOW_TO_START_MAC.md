@@ -1,25 +1,27 @@
-# dsh-compact：Mac 终端启动（日常）
+# dsh-compact: macOS terminal start (daily)
 
-从零安装见 [`HOW_TO_DEPLOY_MAC.md`](HOW_TO_DEPLOY_MAC.md)。  
-本文只讲：**已经装好后，用终端启动 / 停止 / 自检**。
+**English** | [中文](HOW_TO_START_MAC.zh-CN.md)
 
-Windows 同事 → [`HOW_TO_START_WINDOWS.md`](HOW_TO_START_WINDOWS.md)。
+Full install from scratch: [`HOW_TO_DEPLOY_MAC.md`](HOW_TO_DEPLOY_MAC.md) (local/internal).  
+This page covers **start / stop / health** after install.
+
+Windows → [`HOW_TO_START_WINDOWS.md`](HOW_TO_START_WINDOWS.md).
 
 ---
 
-## 前提（做一次即可）
+## Prerequisites (once)
 
-- 仓库在本机，例如：`/Users/<你>/Desktop/Projects/dsh-compact`
-- 已建 venv：`~/.dsh-compact/venv`
-- 已有密钥文件：`~/.dsh-compact/env.sh`（`chmod 600`）
+- Repo on disk, e.g. `~/Desktop/Projects/dsh-compact`
+- venv at `~/.dsh-compact/venv`
+- Secrets file `~/.dsh-compact/env.sh` (`chmod 600`)
 
-`env.sh` 示例（**家用 DeepSeek**；公司内网请改成 `172.17.7.90` + `company-code`）：
+Example `env.sh` (home DeepSeek; company intranet → your gateway + model):
 
 ```bash
 export COMPANY_LLM_BASE="https://api.deepseek.com/v1"
 export DASH_COMPACT_SUMMARIZE_BASE="https://api.deepseek.com/v1"
 export DASH_COMPACT_SUMMARIZE_MODEL="deepseek-chat"
-export DASH_COMPACT_SUMMARIZE_KEY="sk-你的密钥"
+export DASH_COMPACT_SUMMARIZE_KEY="sk-your-key"
 export DASH_COMPACT_TRIGGER=180000
 export DASH_COMPACT_TARGET=80000
 export DASH_COMPACT_PORT=4001
@@ -27,18 +29,18 @@ export DASH_COMPACT_PORT=4001
 
 ---
 
-## 每次启动（复制即用）
+## Start each time
 
-把仓库路径换成你的：
+Replace the repo path with yours:
 
 ```bash
 source ~/.dsh-compact/venv/bin/activate
-cd /Users/yvchuan/Desktop/Projects/dsh-compact
+cd ~/Desktop/Projects/dsh-compact
 source ~/.dsh-compact/env.sh
 python proxy.py
 ```
 
-期望看到类似：
+Expected output:
 
 ```text
 dsh-compact proxy v0.4.0 on http://127.0.0.1:4001
@@ -47,34 +49,34 @@ dsh-compact proxy v0.4.0 on http://127.0.0.1:4001
   trigger=180000 target=80000
 ```
 
-**另开一个终端**做健康检查：
+**Another terminal** for health:
 
 ```bash
 curl -s http://127.0.0.1:4001/health | python3 -m json.tool
 ```
 
-关注：`enabled: true`，`trigger` / `target` 正确。
+Check: `enabled: true`, and `trigger` / `target` look right.
 
 ---
 
-## Harness / DSH 配置
+## Harness / DSH settings
 
-| 项 | 值 |
+| Field | Value |
 | --- | --- |
 | Base URL | `http://127.0.0.1:4001/v1` |
-| API protocol | **OpenAI Chat Completions**（不要用 Anthropic Messages） |
-| API Key | 上游真实 key（DeepSeek / 公司 Virtual Key） |
-| 模型 | 如 `deepseek-chat` 或 `company-code` |
+| API protocol | **OpenAI Chat Completions** (not Anthropic Messages) |
+| API Key | Real upstream key |
+| Model | e.g. `deepseek-chat` or `company-code` |
 
-Apply 后重启会话。聊天走代理；其它直连模型不要改 Base URL。
+Apply, then restart the session. Only route the models that should go through the proxy.
 
 ---
 
-## 停止 / 端口占用
+## Stop / port in use
 
-跑 `python proxy.py` 的终端：`Ctrl+C`。
+In the `python proxy.py` terminal: `Ctrl+C`.
 
-端口被占：
+If the port is busy:
 
 ```bash
 lsof -iTCP:4001 -sTCP:LISTEN
@@ -83,18 +85,18 @@ kill <PID>
 
 ---
 
-## 怎么确认在工作
+## Verify it works
 
-看前台日志或 `~/.dsh-compact/logs/proxy.log`：
+Foreground logs or `~/.dsh-compact/logs/proxy.log`:
 
-| 日志 | 含义 |
+| Log | Meaning |
 | --- | --- |
-| `[MSG] Forwarding ... 200` | 透传成功 |
-| `Compression #N` | 后台压缩完成 |
-| `injected=True` 且 `tokens≈大->小` | 已注入压缩结果 |
-| `injected=False` 且未过 trigger | 正常，尚未压缩 |
+| `[MSG] Forwarding ... 200` | Pass-through OK |
+| `Compression #N` | Background compress finished |
+| `injected=True` and `tokens≈large->small` | Injection applied |
+| `injected=False` under trigger | Normal; not compacting yet |
 
-手测压缩（测完改回并重启）：
+Hand-test compression (then restore and restart):
 
 ```bash
 export DASH_COMPACT_TRIGGER=50000
@@ -103,15 +105,15 @@ export DASH_COMPACT_TARGET=20000
 
 ---
 
-## （可选）登录自启
+## Optional: login autostart
 
-需要开机常驻时，见 [`HOW_TO_DEPLOY_MAC.md`](HOW_TO_DEPLOY_MAC.md) §8（LaunchAgent）。  
-`run_proxy.sh` 里的 `cd` 必须指向你的真实仓库路径。
+See [`HOW_TO_DEPLOY_MAC.md`](HOW_TO_DEPLOY_MAC.md) §8 (LaunchAgent).  
+`run_proxy.sh` must `cd` to your real repo path.
 
 ---
 
-## 常见坑
+## Common pitfalls
 
-1. **协议选错**：内置 DeepSeek 若走 Anthropic `/v1/messages`，代理会 404；请用 OpenAI Chat Completions 的第三方/自定义入口。  
-2. **IDE 终端没读到 `env.sh`**：启动前务必 `source ~/.dsh-compact/env.sh`。  
-3. **公司内网**：家用 Mac 需 VPN；否则把 `COMPANY_LLM_BASE` 换成公网 API。
+1. **Wrong protocol**: built-in DeepSeek Messages → `/v1/messages` → 404. Use OpenAI Chat Completions.
+2. **IDE terminal missing env**: always `source ~/.dsh-compact/env.sh` before start.
+3. **Intranet gateway**: use VPN or switch `COMPANY_LLM_BASE` to a public API.
