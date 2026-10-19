@@ -402,6 +402,10 @@ def _json_response(handler: BaseHTTPRequestHandler, code: int, obj: Any) -> None
 
 
 def _passthrough_headers(headers: dict[str, str]) -> dict[str, str]:
+    # Drop Accept-Encoding: httpx auto-decompresses upstream bodies, so if we
+    # forwarded gzip and then re-chunked plaintext while keeping
+    # Content-Encoding: gzip, clients (Harness/Stainless) fail with
+    # "incorrect header check" / TRANSPORT terminated.
     skip = {
         "host",
         "content-length",
@@ -412,6 +416,7 @@ def _passthrough_headers(headers: dict[str, str]) -> dict[str, str]:
         "te",
         "trailer",
         "upgrade",
+        "accept-encoding",
     }
     out = {}
     for k, v in headers.items():
@@ -556,6 +561,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
         req_headers = _passthrough_headers(headers)
         req_headers["content-length"] = str(len(body))
+        # Prefer identity even if a client somehow re-injected Accept-Encoding.
+        req_headers["Accept-Encoding"] = "identity"
 
         try:
             with STATE._http.stream(
@@ -572,11 +579,14 @@ class ProxyHandler(BaseHTTPRequestHandler):
                         "content-length",
                         "connection",
                         "keep-alive",
+                        # Body from iter_bytes() is already decoded; never claim gzip.
+                        "content-encoding",
                     ):
                         continue
                     self.send_header(k, v)
                 # Stream body
                 self.send_header("Transfer-Encoding", "chunked")
+                self.send_header("Connection", "close")
                 self.end_headers()
                 try:
                     for chunk in resp.iter_bytes():

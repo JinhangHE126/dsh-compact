@@ -165,6 +165,33 @@ def test_stream_passthrough_chat(proxy_pair):
     assert len(upstream.state.snapshot_log()) >= 1
 
 
+def test_encoding_headers_stripped_for_harness(proxy_pair):
+    """Harness sends Accept-Encoding: gzip; proxy must force identity upstream
+    and never leave a Content-Encoding that disagrees with the decoded body."""
+    proxy_base, upstream, _state = proxy_pair
+    upstream.state.configure(content="encoding-ok")
+    r = httpx.post(
+        f"{proxy_base}/v1/chat/completions",
+        json={
+            "model": "company-code",
+            "stream": False,
+            "messages": [{"role": "user", "content": "ping"}],
+        },
+        headers={
+            "Authorization": "Bearer sk-test",
+            "Accept-Encoding": "gzip, deflate",
+        },
+        timeout=10.0,
+    )
+    assert r.status_code == 200
+    assert "encoding-ok" in r.text
+    assert "content-encoding" not in {k.lower() for k in r.headers.keys()}
+
+    last = upstream.state.snapshot_log()[-1]
+    up_headers = {k.lower(): v for k, v in last["headers"].items()}
+    assert up_headers.get("accept-encoding", "").lower() == "identity"
+
+
 def test_inject_after_background_compress(proxy_pair):
     proxy_base, upstream, state = proxy_pair
     # Build a long conversation over trigger
