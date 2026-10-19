@@ -83,9 +83,11 @@ dsh-compact/
   engine.py / prompt.txt   # 留新压旧 + 滚动 merge
   tokens.py / strip_heavy.py / micro_compact.py
   compact.py / session_reader.py   # 应急离线 CLI → brief.md
-  HOW_TO_DEPLOY.md         # Windows 安装手册
-  HOW_TO_DEPLOY_MAC.md     # MacBook / macOS 安装手册
-  DEPLOYMENT.md            # 架构 / 阶段 / 运维细则
+  HOW_TO_START_MAC.md      # Mac 日常启动
+  HOW_TO_START_WINDOWS.md  # Windows 日常启动
+  HOW_TO_DEPLOY.md         # Windows 从零安装
+  HOW_TO_DEPLOY_MAC.md     # Mac 从零安装
+  DEPLOYMENT.md            # 架构说明
   requirements.txt         # httpx
   tests/                   # 56 passed
 ```
@@ -211,24 +213,6 @@ contextkit 是 TypeScript；自动压缩层与应急 CLI 均用 **Python 自实�
 
 ---
 
-## 查找真实 DSH session（Windows）
-
-路径因安装方式而异，可先搜：
-
-```powershell
-Get-ChildItem -Path $env:USERPROFILE -Recurse -Include *.jsonl,*.json -ErrorAction SilentlyContinue |
-  Where-Object { $_.Length -gt 100KB -and $_.FullName -match 'session|transcript|chat|dsh|harness|agent' } |
-  Select-Object FullName, Length, LastWriteTime |
-  Sort-Object LastWriteTime -Descending |
-  Select-Object -First 30
-```
-
-脱敏样例：删掉 API key、内网 IP、客户名；**保留** `role`/`content` 结构、一两段超长 tool 输出、一段 `data:image/...;base64,...`，便于验证 strip / micro-compact。
-
-没有真实样例前：可用通用 OpenAI chat messages json/jsonl 假数据跑通应急 CLI 或压缩引擎单测。
-
----
-
 ## 验收步骤（建议）
 
 **主路径（自动压缩）：**
@@ -243,43 +227,3 @@ Get-ChildItem -Path $env:USERPROFILE -Recurse -Include *.jsonl,*.json -ErrorActi
 1. `pip install -r requirements.txt`
 2. `python compact.py <session> -o brief.md`
 3. 新开 DSH 粘贴 brief，验证可交接
-
----
-
-## 实现状态
-
-| 模块 | 状态 |
-| --- | --- |
-| Phase 0 五 Gate（抓包 / 样本 / 摘要压测） | **已完成 2026-10-14**（见 `notes/phase0-checklist.md`） |
-| 冻结决策：content-hash；TRIGGER=180K；TARGET=80K；同步可行 | **已冻结** |
-| Phase 1：`tokens.py` / `strip_heavy.py` / `micro_compact.py` + 单测 | **已完成** |
-| Phase 2：`prompt.txt` / `engine.py` + mock e2e 加固 | **已完成** |
-| Phase 3：`proxy.py`（content-hash / 异步注入 / 流式透传 / health） | **已完成** |
-| Phase 4：`session_reader.py` / `compact.py` 应急 CLI | **已完成** |
-| 留新压旧 + 滚动摘要 merge | **已实现并挂到代理** |
-| 应急 CLI（session → brief.md） | **已完成**（复用 engine 摘要 + 近期 verbatim） |
-| 真实 DSH session 样本 | **有**：`~\.dsh-compact\samples\session_probe.json` |
-| Phase 3 DSH 烟测（Base URL → `:4001`） | **已做**：透传 / compress / inject |
-| 稠密 agent 切点 + `reasoning_content` 摘要回退 | **已做**（真实流量已见 `Compression #N` + `injected=True`） |
-| 摘要独立凭证 `DASH_COMPACT_SUMMARIZE_*` | **已做**（另一把 key，避免抢 `max_parallel_requests`） |
-| Phase 5：自启 / 日志 / 429 重试 / 空闲再压 | **代码已就绪**（proxy **v0.4.0**）；部署手册 [`HOW_TO_DEPLOY.md`](HOW_TO_DEPLOY.md)；人工勾选 [`notes/phase5-checklist.md`](notes/phase5-checklist.md) |
-| 单测 | **`pytest tests` → 56 passed** |
-
-### Phase 5 一键（Windows）
-
-完整步骤与排错见 [`HOW_TO_DEPLOY.md`](HOW_TO_DEPLOY.md)。最短路径：
-
-```powershell
-[Environment]::SetEnvironmentVariable("COMPANY_LLM_KEY", "sk-...", "User")  # 一次即可
-[Environment]::SetEnvironmentVariable("DASH_COMPACT_SUMMARIZE_KEY", "sk-sum-...", "User")  # 推荐另一把
-powershell -ExecutionPolicy Bypass -File .\scripts\install_autostart.ps1
-Start-Process "$env:USERPROFILE\.dsh-compact\run_proxy_task.cmd"
-curl.exe http://127.0.0.1:4001/health
-# DSH Base URL = http://127.0.0.1:4001/v1
-```
-
----
-
-## 给执行 AI 的一句话
-
-Phase 0–5 代码与脚本已齐（proxy v0.4.0）：生产阈值 180K/80K、登录自启、摘要 429 重试/空闲再压、稠密会话切点、`reasoning_content` 回退、可选独立摘要 key。同事安装看 `HOW_TO_DEPLOY.md`；人工勾选看 `notes/phase5-checklist.md`。
