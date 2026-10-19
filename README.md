@@ -97,19 +97,21 @@ Logs with `Compression #N`, `injected=True`, and `tokens≈large->small` mean co
 
 ### Bench snapshot
 
-Synthetic fixtures, fake summarizer, local token estimate (`python -m bench.free_layer`). `free` is the share left after strip + micro. `post` is the size after a fake summary cut; `end` is `post / raw`. A dash means the session stayed under `TRIGGER`, so the proxy does not compress it. Strip and micro run only inside that compression. Image rows are mostly base64 padding, so their drop is larger than a real screenshot session.
+Synthetic fixtures and a local token estimate (`python -m bench.free_layer`). `free` is the share left after strip + micro. `post` is the size after a summary cut; `end` is `post / raw`. A dash means that cell was not run. Image rows are mostly base64 padding, so their drop is larger than a real screenshot session.
 
-| Sample | raw | strip | micro | free | post | end |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| chat_short | 10500 | 10500 | 10500 | 1.000 | — | — |
-| chat_over_trigger | 195000 | 195000 | 195000 | 1.000 | 97592 | 0.500 |
-| chat_near_hard_limit | 233999 | 233999 | 233999 | 1.000 | 87858 | 0.375 |
-| tools_short | 6170 | 6170 | 4094 | 0.664 | — | — |
-| tools_over_trigger | 195000 | 21770 | 13844 | 0.071 | 10978 | 0.056 |
-| tools_near_hard_limit | 233999 | 21770 | 13844 | 0.059 | 10978 | 0.047 |
-| images_short | 10500 | 378 | 378 | 0.036 | — | — |
-| images_over_trigger | 195000 | 378 | 378 | 0.002 | 162 | 0.001 |
-| images_near_hard_limit | 233999 | 378 | 378 | 0.002 | 162 | 0.001 |
+| Sample | raw | strip | micro | free | post | end | recall | headings |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| chat_short | 10500 | 10500 | 10500 | 1.000 | — | — | — | — |
+| chat_over_trigger | 195000 | 195000 | 195000 | 1.000 | 97965 | 0.503 | 5/5 | 7/7 |
+| chat_near_hard_limit | 233999 | 233999 | 233999 | 1.000 | 87858 | 0.375 | — | — |
+| tools_short | 6170 | 6170 | 4094 | 0.664 | — | — | — | — |
+| tools_over_trigger | 195000 | 21770 | 13844 | 0.071 | 10978 | 0.056 | — | — |
+| tools_near_hard_limit | 233999 | 21770 | 13844 | 0.059 | 10978 | 0.047 | — | — |
+| images_short | 10500 | 378 | 378 | 0.036 | — | — | — | — |
+| images_over_trigger | 195000 | 378 | 378 | 0.002 | 162 | 0.001 | — | — |
+| images_near_hard_limit | 233999 | 378 | 378 | 0.002 | 162 | 0.001 | — | — |
+
+`recall` and `headings` are from a real summarizer (`python -m bench.quality`). Only `chat_over_trigger` has been scored: 195000 → 97965 in 5.88s, all 5 gold facts kept, all 7 `prompt.txt` headings present, `RECENT_ANCHOR` still verbatim, summary 1317 characters. Other `post` / `end` cells are the fake-summarizer size bench.
 
 Plain chat has nothing for the free pass to remove; the summary brings ~190k–234k down to ~88k–98k (`TARGET=80000`). Tool dumps and base64 images shrink in the free pass, before the summary cut.
 
