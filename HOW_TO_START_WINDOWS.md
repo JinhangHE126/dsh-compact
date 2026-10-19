@@ -2,7 +2,7 @@
 
 **English** | [中文](HOW_TO_START_WINDOWS.zh-CN.md)
 
-One-shot install from scratch: [`HOW_TO_DEPLOY.md`](HOW_TO_DEPLOY.md) (local/internal).  
+One-shot install from scratch: [`HOW_TO_DEPLOY.md`](HOW_TO_DEPLOY.md).  
 This page covers **start / stop / autostart / health** after install.
 
 Mac → [`HOW_TO_START_MAC.md`](HOW_TO_START_MAC.md).

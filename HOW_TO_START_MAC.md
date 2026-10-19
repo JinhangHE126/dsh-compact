@@ -2,7 +2,7 @@
 
 **English** | [中文](HOW_TO_START_MAC.zh-CN.md)
 
-Full install from scratch: [`HOW_TO_DEPLOY_MAC.md`](HOW_TO_DEPLOY_MAC.md) (local/internal).  
+Full install from scratch: [`HOW_TO_DEPLOY_MAC.md`](HOW_TO_DEPLOY_MAC.md).  
 This page covers **start / stop / health** after install.
 
 Windows → [`HOW_TO_START_WINDOWS.md`](HOW_TO_START_WINDOWS.md).

@@ -95,6 +95,24 @@ Client           │  dsh-compact 本地代理  127.0.0.1:4001                  
 
 日志里看到 `Compression #N` 与 `injected=True` 且 `tokens≈大->小`，说明压缩已生效。
 
+### 压缩比快照
+
+合成样本、假摘要、本地 token 估算（`python -m bench.free_layer`）。`free` 是 strip + micro 之后剩下的比例。`post` 是假摘要切分后的大小，`end` 是 `post / raw`。横线表示没过 `TRIGGER`，代理不会压缩。strip 和 micro 只在这次压缩里执行。带图样本几乎全是 base64 填充，掉得比真实截图会话更多。
+
+| 样本 | raw | strip | micro | free | post | end |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| chat_short | 10500 | 10500 | 10500 | 1.000 | — | — |
+| chat_over_trigger | 195000 | 195000 | 195000 | 1.000 | 97592 | 0.500 |
+| chat_near_hard_limit | 233999 | 233999 | 233999 | 1.000 | 87858 | 0.375 |
+| tools_short | 6170 | 6170 | 4094 | 0.664 | — | — |
+| tools_over_trigger | 195000 | 21770 | 13844 | 0.071 | 10978 | 0.056 |
+| tools_near_hard_limit | 233999 | 21770 | 13844 | 0.059 | 10978 | 0.047 |
+| images_short | 10500 | 378 | 378 | 0.036 | — | — |
+| images_over_trigger | 195000 | 378 | 378 | 0.002 | 162 | 0.001 |
+| images_near_hard_limit | 233999 | 378 | 378 | 0.002 | 162 | 0.001 |
+
+纯对话没有图，也没有超长 tool 结果，免费层减不掉体积；摘要把大约 19 万–23.4 万压到 8.8 万–9.8 万（`TARGET=80000`）。超长 tool 输出和 base64 图在免费层就会缩小，摘要再切一刀。
+
 ---
 
 ## 环境要求

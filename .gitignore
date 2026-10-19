@@ -36,10 +36,6 @@ _pytest_tmp/
 
 # Local / internal docs — do not publish to GitHub
 REFERENCE_MAPPING.md
-HOW_TO_DEPLOY.md
-HOW_TO_DEPLOY.zh-CN.md
-HOW_TO_DEPLOY_MAC.md
-HOW_TO_DEPLOY_MAC.zh-CN.md
 DEPLOYMENT.md
 DEPLOYMENT.zh-CN.md
 notes/
