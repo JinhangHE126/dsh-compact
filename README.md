@@ -4,7 +4,8 @@ DeepSeek Harness（DSH）会话上下文**自动压缩**：在 DSH 与公司 LLM
 
 **偏好：程序自动压缩，而不是**「跑工具出 `brief.md` → 开新会话粘贴续聊」。
 
-> **给同事部署：** Windows → [`HOW_TO_DEPLOY.md`](HOW_TO_DEPLOY.md)；MacBook → [`HOW_TO_DEPLOY_MAC.md`](HOW_TO_DEPLOY_MAC.md)  
+> **日常启动（短）：** Mac 终端 → [`HOW_TO_START_MAC.md`](HOW_TO_START_MAC.md)；Windows → [`HOW_TO_START_WINDOWS.md`](HOW_TO_START_WINDOWS.md)  
+> **从零部署（全）：** Windows → [`HOW_TO_DEPLOY.md`](HOW_TO_DEPLOY.md)；MacBook → [`HOW_TO_DEPLOY_MAC.md`](HOW_TO_DEPLOY_MAC.md)  
 > 架构与设计细节 → [`DEPLOYMENT.md`](DEPLOYMENT.md)
 
 ---
