@@ -78,19 +78,20 @@ Upstream LLM     │  5. Send [rolling summary] + [recent] upstream           �
 - Special-cases `/v1/chat/completions`; other paths pass through; unknown fields preserved
 - Protocol is **OpenAI Chat Completions** (`tool_calls` + `role:"tool"`)
 
-**Defaults (tune to your window):** `TRIGGER=180000`, `TARGET=80000`; session identity via messages content-hash.
+**Defaults (tune to your window):** `TRIGGER=180000`, `TARGET=80000`, `HARD_LIMIT=240000`; session identity via messages content-hash. Token estimates count CJK, `reasoning_content`, and `tools` schemas; a large request body can also force compaction (`DASH_COMPACT_BODY_TRIGGER_BYTES`).
 
 ### Request pipeline
 
 ```text
-Estimate tokens each request
-  → under TRIGGER: forward as-is
-  → over threshold:
+Estimate tokens each request (messages + tools; CJK / reasoning aware)
+  → under TRIGGER and body under BODY_TRIGGER: forward as-is
+  → over threshold (or large body):
        1) micro: old tool_result → placeholder (no LLM)
        2) summarize old messages only → merge into rolling summary
        3) keep recent messages verbatim
        4) upstream payload = [rolling summary] + [recent]
   → prefer async: allow current turn, inject on the next
+  → at HARD_LIMIT (or large body past TRIGGER): sync-compress before forward
 ```
 
 Logs with `Compression #N`, `injected=True`, and `tokens≈large->small` mean compaction worked.
@@ -165,6 +166,8 @@ Read secrets from environment variables only; never commit them.
 | `DASH_COMPACT_SUMMARIZE_*` | Optional summarizer BASE / MODEL / KEY |
 | `DASH_COMPACT_TRIGGER` | Trigger line, default `180000` |
 | `DASH_COMPACT_TARGET` | Post-compact recent-context budget, default `80000` |
+| `DASH_COMPACT_HARD_LIMIT` | Sync-compress before forward above this estimate, default `240000` |
+| `DASH_COMPACT_BODY_TRIGGER_BYTES` | Also compress when raw request body ≥ this many bytes, default `350000` (backs up token undercount) |
 | `DASH_COMPACT_PORT` | Local port, default `4001` |
 | `DASH_COMPACT_DISABLE` | `1` = compaction off, pass-through only |
 

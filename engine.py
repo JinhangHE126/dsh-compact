@@ -387,11 +387,15 @@ class CompactEngine:
         self,
         messages: Sequence[Mapping[str, Any]],
         usage: Optional[Mapping[str, Any]] = None,
+        *,
+        force: bool = False,
     ) -> bool:
         if self.consecutive_failures >= self.max_failures:
             return False
         if self._in_cooldown():
             return False
+        if force:
+            return True
         tokens = estimate_messages(messages, usage)
         return tokens >= self.trigger_tokens
 

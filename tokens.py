@@ -2,23 +2,47 @@
 Token estimation for OpenAI-format chat messages.
 
 - Prefer API-reported usage when available.
-- Fallback: ~1 token per 4 chars + 33% safety buffer (contextkit-style).
+- Fallback: CJK ≈ 1 tok/char, other ≈ 1 tok / 4 chars, then a safety buffer.
+  (Plain latin ``chars/4`` alone under-counted long DSH sessions by ~2–3×.)
 """
 
 from __future__ import annotations
 
+import json
 from typing import Any, Mapping, Optional, Sequence
 
-# ~1 tok / 4 chars, then inflate by 33% so we under-estimate rarely.
+# Latin / code: ~1 tok / 4 chars. CJK is counted separately (~1 tok / char).
 CHARS_PER_TOKEN = 4.0
-SAFETY_BUFFER = 1.33
+# Inflate so we rarely under-estimate relative to provider tokenizers / DSH UI.
+SAFETY_BUFFER = 1.5
+
+
+def _is_cjk_char(ch: str) -> bool:
+    """True for CJK Unified Ideographs and common adjacent blocks."""
+    o = ord(ch)
+    return (
+        0x4E00 <= o <= 0x9FFF  # CJK Unified
+        or 0x3400 <= o <= 0x4DBF  # Extension A
+        or 0xF900 <= o <= 0xFAFF  # Compatibility Ideographs
+        or 0x3000 <= o <= 0x303F  # CJK punctuation
+        or 0x3040 <= o <= 0x30FF  # Hiragana / Katakana
+        or 0xAC00 <= o <= 0xD7AF  # Hangul syllables
+    )
 
 
 def estimate_tokens(text: str) -> int:
-    """Estimate tokens for a string."""
+    """Estimate tokens for a string (CJK-aware)."""
     if not text:
         return 0
-    return max(1, int(len(text) / CHARS_PER_TOKEN * SAFETY_BUFFER))
+    cjk = 0
+    other = 0
+    for ch in text:
+        if _is_cjk_char(ch):
+            cjk += 1
+        else:
+            other += 1
+    raw = cjk * 1.0 + other / CHARS_PER_TOKEN
+    return max(1, int(raw * SAFETY_BUFFER))
 
 
 def _block_text(block: Any) -> str:
@@ -49,6 +73,14 @@ def estimate_message_tokens(message: Mapping[str, Any]) -> int:
     elif content is not None:
         total += estimate_tokens(str(content))
 
+    # Reasoning models (e.g. company-code) put long chains here; DSH UI counts them.
+    for key in ("reasoning_content", "reasoning"):
+        reasoning = message.get(key)
+        if isinstance(reasoning, str) and reasoning:
+            total += estimate_tokens(reasoning)
+        elif reasoning is not None and not isinstance(reasoning, str):
+            total += estimate_tokens(str(reasoning))
+
     for call in message.get("tool_calls") or []:
         if not isinstance(call, dict):
             continue
@@ -66,6 +98,17 @@ def estimate_message_tokens(message: Mapping[str, Any]) -> int:
     return total
 
 
+def estimate_tools_tokens(tools: Any) -> int:
+    """Estimate tokens for a chat-completions ``tools`` / function schema list."""
+    if not tools:
+        return 0
+    try:
+        blob = json.dumps(tools, ensure_ascii=False, separators=(",", ":"))
+    except (TypeError, ValueError):
+        blob = str(tools)
+    return estimate_tokens(blob)
+
+
 def estimate_messages(
     messages: Sequence[Mapping[str, Any]],
     usage: Optional[Mapping[str, Any]] = None,
@@ -81,6 +124,27 @@ def estimate_messages(
             if isinstance(val, (int, float)) and val > 0:
                 return int(val)
     return sum(estimate_message_tokens(m) for m in messages)
+
+
+def estimate_chat_request(
+    messages: Sequence[Mapping[str, Any]],
+    *,
+    tools: Any = None,
+    usage: Optional[Mapping[str, Any]] = None,
+) -> int:
+    """
+    Estimate tokens for a full chat/completions request.
+
+    When ``usage`` is present it is treated as the provider's full prompt
+    count (messages + tools) and returned as-is. Otherwise messages and
+    tool schemas are summed.
+    """
+    if usage:
+        for key in ("prompt_tokens", "input_tokens"):
+            val = usage.get(key)
+            if isinstance(val, (int, float)) and val > 0:
+                return int(val)
+    return estimate_messages(messages) + estimate_tools_tokens(tools)
 
 
 def group_messages_by_round(

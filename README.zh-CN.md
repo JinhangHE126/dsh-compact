@@ -78,19 +78,20 @@ Client           │  dsh-compact 本地代理  127.0.0.1:4001                  
 - 只特殊处理 `/v1/chat/completions`；其它路径透传；未知字段不破坏
 - 协议为 **OpenAI Chat Completions**（`tool_calls` + `role:"tool"`）
 
-**默认阈值（可按窗口调整）：** `TRIGGER=180000`，`TARGET=80000`；会话身份用 messages 内容 hash。
+**默认阈值（可按窗口调整）：** `TRIGGER=180000`，`TARGET=80000`，`HARD_LIMIT=240000`；会话身份用 messages 内容 hash。估算会计入中文、`reasoning_content` 与 `tools` schema；请求体过大也会强制压缩（`DASH_COMPACT_BODY_TRIGGER_BYTES`）。
 
 ### 请求处理流程
 
 ```text
-每轮请求估算 token
-  → 未超 TRIGGER：原样转发
-  → 超阈值：
+每轮请求估算 token（messages + tools；中文 / reasoning 敏感）
+  → 未超 TRIGGER 且 body 未超 BODY_TRIGGER：原样转发
+  → 超阈值（或 body 过大）：
        1) micro：旧 tool_result → 占位（不调 LLM）
        2) 只摘要旧消息 → 与滚动摘要 merge
        3) 近期消息原文保留
        4) 发给上游 = [滚动摘要] + [近期原文]
   → 尽量异步：本轮可先放行，下轮注入
+  → 达 HARD_LIMIT（或 body 过大且已超 TRIGGER）：转发前同步压缩
 ```
 
 日志里看到 `Compression #N` 与 `injected=True` 且 `tokens≈大->小`，说明压缩已生效。
@@ -165,6 +166,8 @@ Apply 后重启会话。完整步骤见 [HOW_TO_START_MAC.zh-CN.md](HOW_TO_START
 | `DASH_COMPACT_SUMMARIZE_*` | 可选：摘要专用 BASE / MODEL / KEY |
 | `DASH_COMPACT_TRIGGER` | 触发线，默认 `180000` |
 | `DASH_COMPACT_TARGET` | 压缩后近期原文目标上限，默认 `80000` |
+| `DASH_COMPACT_HARD_LIMIT` | 估算超过此值则转发前同步压缩，默认 `240000` |
+| `DASH_COMPACT_BODY_TRIGGER_BYTES` | 请求体字节数 ≥ 此值也触发压缩，默认 `350000`（兜底低估） |
 | `DASH_COMPACT_PORT` | 本地端口，默认 `4001` |
 | `DASH_COMPACT_DISABLE` | `1` = 关闭压缩，纯透传 |
 

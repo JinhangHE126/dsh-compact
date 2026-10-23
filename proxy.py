@@ -36,17 +36,31 @@ from engine import (
     CompactEngine,
     make_http_summarizer,
 )
-from tokens import estimate_messages
+from tokens import estimate_chat_request
 
 log = logging.getLogger("dsh-compact.proxy")
 
-VERSION = "0.4.0"
+VERSION = "0.4.1"
 SERVICE = "dsh-compact"
 
 DEFAULT_PORT = 4001
 DEFAULT_MAX_CONCURRENT = 1  # company gateway often allows only ~2 parallel requests
-HARD_LIMIT_TOKENS = 240_000  # sync-compress above this before forward
+# Sync-compress above this (local estimate) before forward. Overridable via env.
+DEFAULT_HARD_LIMIT_TOKENS = 240_000
+HARD_LIMIT_TOKENS = DEFAULT_HARD_LIMIT_TOKENS  # bench / import compat
+# Secondary trigger: raw request body size (catches estimate undercount).
+DEFAULT_BODY_TRIGGER_BYTES = 350_000
 DEFAULT_IDLE_WAIT_S = 180.0
+
+
+def hard_limit_tokens() -> int:
+    return int(os.environ.get("DASH_COMPACT_HARD_LIMIT", str(DEFAULT_HARD_LIMIT_TOKENS)))
+
+
+def body_trigger_bytes() -> int:
+    return int(
+        os.environ.get("DASH_COMPACT_BODY_TRIGGER_BYTES", str(DEFAULT_BODY_TRIGGER_BYTES))
+    )
 
 
 def compact_home() -> Path:
@@ -289,10 +303,17 @@ class ProxyState:
             time.sleep(0.25)
         return self.active_requests <= 0
 
-    def schedule_compress(self, key: str, messages: list[Any], usage: Optional[dict]) -> None:
+    def schedule_compress(
+        self,
+        key: str,
+        messages: list[Any],
+        usage: Optional[dict],
+        *,
+        force: bool = False,
+    ) -> None:
         if self.disabled:
             return
-        if not self.engine.should_compact(messages, usage):
+        if not self.engine.should_compact(messages, usage, force=force):
             return
         if not self.try_begin_compress(key):
             log.info("[MSG] skip schedule key=%s (inflight or concurrency)", key[:16])
@@ -360,6 +381,8 @@ class ProxyState:
                 "summarizer_separate": self.summarizer_separate,
                 "trigger": self.engine.trigger_tokens,
                 "target": self.engine.target_tokens,
+                "hard_limit": hard_limit_tokens(),
+                "body_trigger_bytes": body_trigger_bytes(),
             }
 
     def stats(self) -> dict[str, Any]:
@@ -471,11 +494,22 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 self._forward_bytes("POST", body, dict(self.headers))
                 return
 
+            tools = payload.get("tools")
             hdrs = {k: v for k, v in self.headers.items()}
             key = get_session_key(messages, hdrs)
-            tokens = estimate_messages(messages)
+            tokens = estimate_chat_request(messages, tools=tools)
             st = STATE.session_stats(key)
             st.peak_tokens = max(st.peak_tokens, tokens)
+
+            body_bytes = len(body)
+            body_thr = body_trigger_bytes()
+            force_body = body_bytes >= body_thr
+            if force_body:
+                log.info(
+                    "[MSG] body-size trigger bytes=%s threshold=%s",
+                    body_bytes,
+                    body_thr,
+                )
 
             outgoing_messages = messages
             injected = False
@@ -491,14 +525,27 @@ class ProxyHandler(BaseHTTPRequestHandler):
                         len(outgoing_messages),
                     )
 
-            out_tokens = estimate_messages(outgoing_messages)
-            # Sync path when still above hard limit
+            out_tokens = estimate_chat_request(outgoing_messages, tools=tools)
+            hl = hard_limit_tokens()
+            # Sync when estimate hits hard limit, or body trigger says we are
+            # already huge and past the async trigger (avoid forwarding a
+            # turn that will ContextWindowExceeded while BG compress waits).
+            need_sync = out_tokens >= hl or (
+                force_body and out_tokens >= STATE.engine.trigger_tokens
+            )
             if (
                 not STATE.disabled
-                and out_tokens >= HARD_LIMIT_TOKENS
-                and STATE.engine.should_compact(outgoing_messages)
+                and need_sync
+                and STATE.engine.should_compact(
+                    outgoing_messages, force=force_body and out_tokens < hl
+                )
             ):
-                log.info("[MSG] sync compress (hard limit) tokens≈%s", out_tokens)
+                log.info(
+                    "[MSG] sync compress tokens≈%s hard_limit=%s body_force=%s",
+                    out_tokens,
+                    hl,
+                    force_body,
+                )
                 try:
                     result = STATE.engine.compress(outgoing_messages)
                     if result:
@@ -510,23 +557,23 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
             # Schedule async compress on the *original* full transcript
             # (so next turn's prefix hash matches)
-            if not STATE.disabled and not injected:
-                STATE.schedule_compress(key, messages, usage=None)
-            elif not STATE.disabled and injected:
-                # Still may need to recompress as conversation grows
-                STATE.schedule_compress(key, messages, usage=None)
+            if not STATE.disabled:
+                STATE.schedule_compress(
+                    key, messages, usage=None, force=force_body
+                )
 
             new_payload = dict(payload)
             new_payload["messages"] = outgoing_messages
             new_body = json.dumps(new_payload, ensure_ascii=False).encode("utf-8")
 
             log.info(
-                "[MSG] Forwarding to %s tokens≈%s->%s injected=%s stream=%s",
+                "[MSG] Forwarding to %s tokens≈%s->%s injected=%s stream=%s body=%s",
                 STATE.upstream_base,
                 tokens,
-                estimate_messages(outgoing_messages),
+                estimate_chat_request(outgoing_messages, tools=tools),
                 injected,
                 bool(payload.get("stream")),
+                body_bytes,
             )
             self._forward_bytes("POST", new_body, hdrs, force_path="/chat/completions")
         finally:
@@ -657,7 +704,9 @@ def serve(
         f"  upstream={STATE.upstream_base}\n"
         f"  summarizer={STATE.summarizer_base} model={STATE.summarizer_model}"
         f" separate={STATE.summarizer_separate}\n"
-        f"  trigger={STATE.engine.trigger_tokens} target={STATE.engine.target_tokens}\n"
+        f"  trigger={STATE.engine.trigger_tokens} target={STATE.engine.target_tokens}"
+        f" hard_limit={hard_limit_tokens()}\n"
+        f"  body_trigger_bytes={body_trigger_bytes()}\n"
         f"  disabled={STATE.disabled} pid={h['pid']}",
         flush=True,
     )

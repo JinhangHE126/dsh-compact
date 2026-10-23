@@ -126,6 +126,7 @@ def test_compress_keeps_recent_verbatim_and_adds_summary():
     # Force high usage so keep_ratio is small enough to cut
     usage = {"prompt_tokens": 50_000}
     assert engine.should_compact(msgs, usage)
+    assert engine.should_compact([{"role": "user", "content": "x"}], force=True)
 
     result = engine.compress(msgs, usage)
     assert result is not None

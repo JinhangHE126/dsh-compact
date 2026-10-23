@@ -1,6 +1,8 @@
 from tokens import (
+    estimate_chat_request,
     estimate_messages,
     estimate_tokens,
+    estimate_tools_tokens,
     group_messages_by_round,
 )
 
@@ -10,11 +12,18 @@ def test_estimate_tokens_empty():
 
 
 def test_estimate_tokens_scales_with_length():
-    short = estimate_tokens("abcd")  # 4 chars -> ~1 * 1.33 -> 1
-    long = estimate_tokens("x" * 400)  # 400/4*1.33 = 133
+    short = estimate_tokens("abcd")  # 4 chars -> 1 * 1.5 -> 1
+    long = estimate_tokens("x" * 400)  # 400/4*1.5 = 150
     assert short >= 1
     assert long > short
-    assert long == int(400 / 4 * 1.33)
+    assert long == int(400 / 4 * 1.5)
+
+
+def test_estimate_tokens_cjk_higher_than_latin_same_len():
+    latin = estimate_tokens("a" * 100)
+    cjk = estimate_tokens("中" * 100)
+    # CJK ≈ 1 tok/char; latin ≈ 1/4 — CJK must be much larger
+    assert cjk > latin * 2
 
 
 def test_usage_preferred_over_estimate():
@@ -38,6 +47,41 @@ def test_estimate_includes_tool_calls():
         ],
     }
     assert estimate_messages([msg]) > 50
+
+
+def test_estimate_includes_reasoning_content():
+    without = estimate_messages(
+        [{"role": "assistant", "content": "ok", "reasoning_content": ""}]
+    )
+    with_r = estimate_messages(
+        [
+            {
+                "role": "assistant",
+                "content": "ok",
+                "reasoning_content": "推" * 500,
+            }
+        ]
+    )
+    assert with_r > without + 400
+
+
+def test_estimate_tools_and_chat_request():
+    messages = [{"role": "user", "content": "hi"}]
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "read_file",
+                "description": "d" * 200,
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+    ]
+    tool_tok = estimate_tools_tokens(tools)
+    assert tool_tok > 40
+    base = estimate_messages(messages)
+    assert estimate_chat_request(messages, tools=tools) == base + tool_tok
+    assert estimate_chat_request(messages, tools=tools, usage={"prompt_tokens": 7}) == 7
 
 
 def test_group_messages_by_round():

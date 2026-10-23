@@ -12,9 +12,13 @@ import pytest
 from engine import CompactEngine, SUMMARY_MARKER
 from mock_gateway import start_mock_gateway
 from proxy import (
+    DEFAULT_BODY_TRIGGER_BYTES,
+    DEFAULT_HARD_LIMIT_TOKENS,
     ProxyState,
+    body_trigger_bytes,
     content_hash,
     get_session_key,
+    hard_limit_tokens,
     resolve_summarizer_config,
     serve,
 )
@@ -26,6 +30,17 @@ def _msgs(*texts: str) -> list[dict]:
         out.append({"role": "user", "content": t})
         out.append({"role": "assistant", "content": f"a{i}"})
     return out
+
+
+def test_hard_limit_and_body_trigger_env(monkeypatch):
+    monkeypatch.delenv("DASH_COMPACT_HARD_LIMIT", raising=False)
+    monkeypatch.delenv("DASH_COMPACT_BODY_TRIGGER_BYTES", raising=False)
+    assert hard_limit_tokens() == DEFAULT_HARD_LIMIT_TOKENS
+    assert body_trigger_bytes() == DEFAULT_BODY_TRIGGER_BYTES
+    monkeypatch.setenv("DASH_COMPACT_HARD_LIMIT", "100000")
+    monkeypatch.setenv("DASH_COMPACT_BODY_TRIGGER_BYTES", "12345")
+    assert hard_limit_tokens() == 100_000
+    assert body_trigger_bytes() == 12_345
 
 
 def test_content_hash_stable():
