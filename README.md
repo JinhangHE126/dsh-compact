@@ -8,7 +8,7 @@ Local reverse proxy between [DeepSeek Harness](https://github.com/deepseek-ai/de
 Client  →  http://127.0.0.1:4001/v1  →  dsh-compact  →  your OpenAI-compatible upstream
 ```
 
-> **Daily start:** [Mac](HOW_TO_START_MAC.md) · [Windows](HOW_TO_START_WINDOWS.md)
+Daily use: start `python proxy.py` in a **foreground terminal** (see Quick Start below).
 
 ---
 
@@ -20,11 +20,11 @@ Copy this into your coding agent:
 Install and configure dsh-compact for local use on this machine.
 
 1. Detect OS (macOS / Windows) and show a short setup plan; wait for my approval before changing anything.
-2. Create ~/.dsh-compact/venv (or Windows equivalent), pip install -r requirements.txt.
+2. Create ~/.dsh-compact/venv (or Windows %USERPROFILE%\.dsh-compact\venv), pip install -r requirements.txt.
 3. Ask me for COMPANY_LLM_BASE, COMPANY_LLM_MODEL, and COMPANY_LLM_KEY (optional: DASH_COMPACT_SUMMARIZE_*).
    Write them to ~/.dsh-compact/env.sh on macOS (chmod 600) or User-level environment variables on Windows.
    Never commit secrets to git.
-4. Follow HOW_TO_START_MAC.md or HOW_TO_START_WINDOWS.md; start `python proxy.py` (background OK).
+4. Start with: python proxy.py (foreground in a terminal).
 5. Verify with: curl http://127.0.0.1:4001/health  — expect enabled=true and the configured upstream.
 6. Tell me to set the client (DeepSeek Harness / DSH) Base URL to http://127.0.0.1:4001/v1,
    API protocol = OpenAI Chat Completions, then Apply and restart the session.
@@ -128,29 +128,119 @@ Plain chat has nothing for the free pass to remove; the summary brings ~190k–2
 
 ## Quick Start
 
+### 1. Install (once)
+
 ```bash
+python3 -m venv ~/.dsh-compact/venv          # Windows: py -3 -m venv %USERPROFILE%\.dsh-compact\venv
+source ~/.dsh-compact/venv/bin/activate      # Windows: Activate.ps1 under that venv
+cd /path/to/dsh-compact
 pip install -r requirements.txt
-
-export COMPANY_LLM_BASE="https://api.example.com/v1"   # your upstream
-export COMPANY_LLM_MODEL="your-model"
-export COMPANY_LLM_KEY="sk-..."                        # summarizer fallback; chat key may live only in the client
-# Recommended: separate summarizer credentials
-# export DASH_COMPACT_SUMMARIZE_BASE=... MODEL=... KEY=...
-
-python proxy.py
-# curl http://127.0.0.1:4001/health
 ```
 
-In the client:
+On Windows you can also run: `powershell -ExecutionPolicy Bypass -File .\scripts\setup_home.ps1`.
+
+### 2. Credentials (once)
+
+Secrets from the environment only — **never commit them**.
+
+**macOS** — `~/.dsh-compact/env.sh` (`chmod 600`):
+
+```bash
+export COMPANY_LLM_BASE="https://api.deepseek.com/v1"   # or your gateway
+export COMPANY_LLM_MODEL="deepseek-chat"
+export COMPANY_LLM_KEY="sk-..."
+# Recommended: separate summarizer credentials
+export DASH_COMPACT_SUMMARIZE_BASE="https://api.deepseek.com/v1"
+export DASH_COMPACT_SUMMARIZE_MODEL="deepseek-chat"
+export DASH_COMPACT_SUMMARIZE_KEY="sk-..."
+export DASH_COMPACT_TRIGGER=180000
+export DASH_COMPACT_TARGET=80000
+export DASH_COMPACT_PORT=4001
+```
+
+**Windows** — **User-level** variables (open a **new** PowerShell afterward):
+
+```powershell
+[Environment]::SetEnvironmentVariable("COMPANY_LLM_BASE",  "https://api.deepseek.com/v1", "User")
+[Environment]::SetEnvironmentVariable("COMPANY_LLM_MODEL", "deepseek-chat", "User")
+[Environment]::SetEnvironmentVariable("COMPANY_LLM_KEY",   "sk-your-key", "User")
+[Environment]::SetEnvironmentVariable("DASH_COMPACT_SUMMARIZE_BASE",  "https://api.deepseek.com/v1", "User")
+[Environment]::SetEnvironmentVariable("DASH_COMPACT_SUMMARIZE_MODEL", "deepseek-chat", "User")
+[Environment]::SetEnvironmentVariable("DASH_COMPACT_SUMMARIZE_KEY",   "sk-summarizer-key", "User")
+```
+
+### 3. Start from a terminal (every time)
+
+**macOS:**
+
+```bash
+source ~/.dsh-compact/venv/bin/activate
+cd /path/to/dsh-compact
+source ~/.dsh-compact/env.sh
+python proxy.py
+```
+
+**Windows (PowerShell):**
+
+```powershell
+cd C:\Users\<you>\Desktop\dsh-compact
+
+# Free port 4001 if an old proxy is still listening
+Get-NetTCPConnection -LocalPort 4001 -ErrorAction SilentlyContinue |
+  ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
+
+& "$env:USERPROFILE\.dsh-compact\venv\Scripts\Activate.ps1"
+$env:NO_PROXY = "127.0.0.1,localhost"
+python .\proxy.py
+```
+
+Expect:
+
+```text
+dsh-compact proxy v0.4.0 on http://127.0.0.1:4001
+  trigger=180000 target=80000
+```
+
+In **another** terminal:
+
+```bash
+curl http://127.0.0.1:4001/health          # Windows: curl.exe
+```
+
+Check `enabled: true` and that `/health` `pid` matches the banner. Stop with `Ctrl+C` in the proxy terminal.
+
+### 4. Client (Harness / DSH)
 
 | Field | Value |
 | --- | --- |
 | Base URL | `http://127.0.0.1:4001/v1` |
-| API protocol | OpenAI Chat Completions |
+| API protocol | **OpenAI Chat Completions** (not Anthropic Messages) |
 | API Key | Real upstream key |
 | Model | Same as upstream |
 
-Apply, then restart the session. Full steps: [HOW_TO_START_MAC.md](HOW_TO_START_MAC.md) / [HOW_TO_START_WINDOWS.md](HOW_TO_START_WINDOWS.md).
+Apply, then restart the session.
+
+### 5. How to tell it is working
+
+| Log / symptom | Meaning |
+| --- | --- |
+| `[MSG] Forwarding ... 200` | Pass-through OK |
+| `Compression #N` | Background compress finished |
+| `injected=True` and `tokens≈large->small` | Compacted payload in use |
+| `injected=False` under trigger | Normal; not compacting yet |
+
+To hand-test: temporarily set `DASH_COMPACT_TRIGGER=50000`, **new terminal + restart proxy**; restore `180000` after.
+
+### Troubleshooting: port in use / no `[MSG]` in this terminal
+
+Usually more than one `proxy.py` is running. Only the process that owns 4001 gets the live logs.
+
+Fix: `curl` `/health` for `pid` → kill whatever owns 4001 → start **one** foreground `python proxy.py` → confirm `/health` `pid` matches the banner → send a short chat; `[MSG]` should appear in that terminal.
+
+macOS: `lsof -iTCP:4001 -sTCP:LISTEN` then `kill <PID>`.  
+Or follow the log file: `tail -f ~/.dsh-compact/logs/proxy.log` (Windows: `Get-Content ...\proxy.log -Wait -Tail 50`).
+
+Optional helpers remain under `scripts/` (venv setup, autostart). Prefer a single foreground terminal for daily use.
 
 ---
 
@@ -192,6 +282,7 @@ proxy.py                 # local HTTP proxy (main entry)
 engine.py / prompt.txt   # keep-recent + rolling merge
 tokens.py / strip_heavy.py / micro_compact.py
 compact.py / session_reader.py   # emergency CLI
+scripts/                 # optional: venv setup, autostart, etc.
 tests/
 ```
 

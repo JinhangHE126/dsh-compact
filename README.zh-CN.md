@@ -8,7 +8,7 @@
 Client  →  http://127.0.0.1:4001/v1  →  dsh-compact  →  你的 OpenAI 兼容上游
 ```
 
-> **日常启动：** [Mac](HOW_TO_START_MAC.zh-CN.md) · [Windows](HOW_TO_START_WINDOWS.zh-CN.md)
+日常只用**终端前台**启动 `python proxy.py`（见下方「快速开始」）。
 
 ---
 
@@ -20,11 +20,11 @@ Client  →  http://127.0.0.1:4001/v1  →  dsh-compact  →  你的 OpenAI 兼�
 Install and configure dsh-compact for local use on this machine.
 
 1. Detect OS (macOS / Windows) and show a short setup plan; wait for my approval before changing anything.
-2. Create ~/.dsh-compact/venv (or Windows equivalent), pip install -r requirements.txt.
+2. Create ~/.dsh-compact/venv (or Windows %USERPROFILE%\.dsh-compact\venv), pip install -r requirements.txt.
 3. Ask me for COMPANY_LLM_BASE, COMPANY_LLM_MODEL, and COMPANY_LLM_KEY (optional: DASH_COMPACT_SUMMARIZE_*).
    Write them to ~/.dsh-compact/env.sh on macOS (chmod 600) or User-level environment variables on Windows.
    Never commit secrets to git.
-4. Follow HOW_TO_START_MAC.md or HOW_TO_START_WINDOWS.md; start `python proxy.py` (background OK).
+4. Start with: python proxy.py (foreground in a terminal).
 5. Verify with: curl http://127.0.0.1:4001/health  — expect enabled=true and the configured upstream.
 6. Tell me to set the client (DeepSeek Harness / DSH) Base URL to http://127.0.0.1:4001/v1,
    API protocol = OpenAI Chat Completions, then Apply and restart the session.
@@ -128,29 +128,123 @@ Client           │  dsh-compact 本地代理  127.0.0.1:4001                  
 
 ## 快速开始
 
+### 1. 安装（做一次）
+
 ```bash
+# 建议把 venv 放在家目录，勿提交密钥
+python3 -m venv ~/.dsh-compact/venv          # Windows: py -3 -m venv %USERPROFILE%\.dsh-compact\venv
+source ~/.dsh-compact/venv/bin/activate      # Windows: .\.dsh-compact\venv\Scripts\Activate.ps1（路径按实际）
+cd /path/to/dsh-compact
 pip install -r requirements.txt
-
-export COMPANY_LLM_BASE="https://api.example.com/v1"   # 你的上游
-export COMPANY_LLM_MODEL="your-model"
-export COMPANY_LLM_KEY="sk-..."                        # 摘要回退用；聊天 key 也可只配在客户端
-# 推荐：摘要单独一把 key
-# export DASH_COMPACT_SUMMARIZE_BASE=... MODEL=... KEY=...
-
-python proxy.py
-# curl http://127.0.0.1:4001/health
 ```
 
-客户端里：
+Windows 也可：`powershell -ExecutionPolicy Bypass -File .\scripts\setup_home.ps1`（建目录 + venv + 装依赖）。
+
+### 2. 配置密钥（做一次）
+
+密钥只放环境变量，**不要写进仓库**。
+
+**macOS** — 写入 `~/.dsh-compact/env.sh`（`chmod 600`）：
+
+```bash
+export COMPANY_LLM_BASE="https://api.deepseek.com/v1"   # 或你的公司网关
+export COMPANY_LLM_MODEL="deepseek-chat"                # 或 company-code 等
+export COMPANY_LLM_KEY="sk-..."                         # 摘要回退；聊天 key 也可只配在客户端
+# 推荐：摘要单独一把 key
+export DASH_COMPACT_SUMMARIZE_BASE="https://api.deepseek.com/v1"
+export DASH_COMPACT_SUMMARIZE_MODEL="deepseek-chat"
+export DASH_COMPACT_SUMMARIZE_KEY="sk-..."
+export DASH_COMPACT_TRIGGER=180000
+export DASH_COMPACT_TARGET=80000
+export DASH_COMPACT_PORT=4001
+```
+
+**Windows** — 写成 **User 级**变量（改完后**新开** PowerShell）：
+
+```powershell
+[Environment]::SetEnvironmentVariable("COMPANY_LLM_BASE",  "https://api.deepseek.com/v1", "User")
+[Environment]::SetEnvironmentVariable("COMPANY_LLM_MODEL", "deepseek-chat", "User")
+[Environment]::SetEnvironmentVariable("COMPANY_LLM_KEY",   "sk-你的key", "User")
+[Environment]::SetEnvironmentVariable("DASH_COMPACT_SUMMARIZE_BASE",  "https://api.deepseek.com/v1", "User")
+[Environment]::SetEnvironmentVariable("DASH_COMPACT_SUMMARIZE_MODEL", "deepseek-chat", "User")
+[Environment]::SetEnvironmentVariable("DASH_COMPACT_SUMMARIZE_KEY",   "sk-你的摘要key", "User")
+```
+
+公司内网把 `BASE` 换成网关地址、`MODEL` 换成实际模型名即可。
+
+### 3. 每次用终端启动
+
+**macOS：**
+
+```bash
+source ~/.dsh-compact/venv/bin/activate
+cd /path/to/dsh-compact
+source ~/.dsh-compact/env.sh
+python proxy.py
+```
+
+**Windows（PowerShell）：**
+
+```powershell
+cd C:\Users\<你>\Desktop\dsh-compact
+
+# 若 4001 已被占用，先结束旧进程（避免「聊天正常但本终端无日志」）
+Get-NetTCPConnection -LocalPort 4001 -ErrorAction SilentlyContinue |
+  ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
+
+& "$env:USERPROFILE\.dsh-compact\venv\Scripts\Activate.ps1"
+# 避免系统 HTTP(S)_PROXY 劫持回环 / 内网网关
+$env:NO_PROXY = "127.0.0.1,localhost"
+python .\proxy.py
+```
+
+期望看到：
+
+```text
+dsh-compact proxy v0.4.0 on http://127.0.0.1:4001
+  trigger=180000 target=80000
+```
+
+**另开一个终端**做健康检查：
+
+```bash
+curl http://127.0.0.1:4001/health          # Windows 可用 curl.exe
+```
+
+关注：`enabled: true`，以及 `/health` 返回的 `pid` 与启动行里的 `pid` 一致。停掉：前台窗口 `Ctrl+C`。
+
+### 4. 客户端（Harness / DSH）
 
 | 项 | 值 |
 | --- | --- |
 | Base URL | `http://127.0.0.1:4001/v1` |
-| API protocol | OpenAI Chat Completions |
+| API protocol | **OpenAI Chat Completions**（不要用 Anthropic Messages） |
 | API Key | 上游真实 key |
 | Model | 与上游一致 |
 
-Apply 后重启会话。完整步骤见 [HOW_TO_START_MAC.zh-CN.md](HOW_TO_START_MAC.zh-CN.md) / [HOW_TO_START_WINDOWS.zh-CN.md](HOW_TO_START_WINDOWS.zh-CN.md)。
+Apply 后重启会话。
+
+### 5. 怎么确认在工作
+
+| 日志 / 现象 | 含义 |
+| --- | --- |
+| `[MSG] Forwarding ... 200` | 透传成功 |
+| `Compression #N` | 后台压缩完成 |
+| `injected=True` 且 `tokens≈大->小` | 已注入压缩结果 |
+| `injected=False` 且未过 trigger | 正常，尚未压缩 |
+
+手测压缩：临时把 `DASH_COMPACT_TRIGGER` 降到 `50000`，**新开终端并重启代理**；测完改回 `180000`。
+
+### 排错：端口被占 / 终端没有 `[MSG]`
+
+常见原因是同时有多个 `proxy.py`（旧终端或自启残留）。真正占 4001 的进程才会写实时日志；你正在看的窗口可能不是 listener。
+
+处理：先 `curl` `/health` 看 `pid` → 清掉 4001 上旧进程 → **只留一个前台** `python proxy.py` → 再验 `/health` 的 `pid` 与启动行一致 → 在客户端发一条短消息，前台应出现 `[MSG]`。
+
+macOS 查占用：`lsof -iTCP:4001 -sTCP:LISTEN` 后 `kill <PID>`。  
+也可盯日志文件：`Get-Content "$env:USERPROFILE\.dsh-compact\logs\proxy.log" -Wait -Tail 50`（macOS：`tail -f ~/.dsh-compact/logs/proxy.log`）。
+
+可选脚本仍在 `scripts/`（如 `setup_home.ps1`、自启相关）；日常推荐只用终端前台，调试期间避免多个实例。
 
 ---
 
@@ -192,6 +286,7 @@ proxy.py                 # 本地 HTTP 代理（主入口）
 engine.py / prompt.txt   # 留新压旧 + 滚动 merge
 tokens.py / strip_heavy.py / micro_compact.py
 compact.py / session_reader.py   # 应急 CLI
+scripts/                 # 可选：venv 安装、自启等
 tests/
 ```
 
