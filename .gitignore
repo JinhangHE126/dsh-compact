@@ -39,3 +39,7 @@ REFERENCE_MAPPING.md
 DEPLOYMENT.md
 DEPLOYMENT.zh-CN.md
 notes/
+
+# DSH plugin (TypeScript)
+plugin/**/node_modules/
+plugin/**/lib/
